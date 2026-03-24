@@ -132,13 +132,27 @@ function parseRepeatExpr(expr) {
   if (!expr) return null;
   var s = expr.trim().toLowerCase();
 
-  // Strip leading "every " or "ev "
-  s = s.replace(/^every\s+/, '').replace(/^ev\s+/, '');
+  // Detect "from completion" modifier: leading "+", trailing/leading "!"
+  // Supported: "+3d", "every! 3 days", "ev! Mon", "!3d"
+  var fromCompletion = false;
+  if (s.charAt(0) === '+' || s.charAt(0) === '!') {
+    fromCompletion = true;
+    s = s.substring(1).trim();
+  }
+
+  // Strip leading "every " or "ev " — also handle "every!" or "ev!"
+  s = s.replace(/^every!?\s+/, '').replace(/^ev!?\s+/, '');
+
+  // Check for trailing "!" after stripping every/ev
+  if (s.charAt(s.length - 1) === '!' || s.indexOf('!') === 0) {
+    fromCompletion = true;
+    s = s.replace(/!/g, '').trim();
+  }
 
   // --- Simple interval format: [+]Nd, [+]Nw, [+]Nm, [+]Ny ---
   var simpleMatch = s.match(/^(\+)?(\d+)\s*([dwmqy])$/);
   if (simpleMatch) {
-    var fromCompletion = Boolean(simpleMatch[1]);
+    if (simpleMatch[1]) fromCompletion = true;
     var num = parseInt(simpleMatch[2]);
     var unitMap = { d: 'day', w: 'week', m: 'month', q: 'quarter', y: 'year' };
     var unit = unitMap[simpleMatch[3]];
@@ -153,7 +167,7 @@ function parseRepeatExpr(expr) {
     var u = otherMatch[1];
     var c = 2;
     if (u === 'week') { u = 'day'; c = 14; }
-    return { type: 'interval', unit: u, count: c, fromCompletion: false };
+    return { type: 'interval', unit: u, count: c, fromCompletion: fromCompletion };
   }
 
   // --- "N days/weeks/months/years" ---
@@ -162,7 +176,7 @@ function parseRepeatExpr(expr) {
     var n2 = parseInt(intervalMatch[1]);
     var u2 = intervalMatch[2];
     if (u2 === 'week') { u2 = 'day'; n2 *= 7; }
-    return { type: 'interval', unit: u2, count: n2, fromCompletion: false };
+    return { type: 'interval', unit: u2, count: n2, fromCompletion: fromCompletion };
   }
 
   // --- "day" / "week" / "month" / "year" (without number = every 1) ---
@@ -171,7 +185,7 @@ function parseRepeatExpr(expr) {
     var u3 = singleMatch[1];
     var c3 = 1;
     if (u3 === 'week') { u3 = 'day'; c3 = 7; }
-    return { type: 'interval', unit: u3, count: c3, fromCompletion: false };
+    return { type: 'interval', unit: u3, count: c3, fromCompletion: fromCompletion };
   }
 
   // --- Weekday list: "mon, wed, fri" or "monday, wednesday" ---
@@ -186,7 +200,7 @@ function parseRepeatExpr(expr) {
   }
   if (allDays && dayIndices.length > 0) {
     dayIndices.sort(function(a, b) { return a - b; });
-    return { type: 'weekdays', days: dayIndices, fromCompletion: false };
+    return { type: 'weekdays', days: dayIndices, fromCompletion: fromCompletion };
   }
 
   // --- "Nth weekday": "3rd sunday", "last friday", "1st monday" ---
@@ -197,7 +211,7 @@ function parseRepeatExpr(expr) {
     var dayName = nthDayMatch[2].substring(0, 3);
     var dayNum = DAY_ABBREVS.indexOf(dayName);
     if (dayNum >= 0 && nth !== undefined) {
-      return { type: 'nthWeekday', nth: nth, weekday: dayNum, fromCompletion: false };
+      return { type: 'nthWeekday', nth: nth, weekday: dayNum, fromCompletion: fromCompletion };
     }
   }
 
@@ -221,7 +235,7 @@ function parseRepeatExpr(expr) {
   }
   if (allMd && monthDays.length > 0) {
     monthDays.sort(function(a, b) { return a - b; });
-    return { type: 'monthdays', days: monthDays, fromCompletion: false };
+    return { type: 'monthdays', days: monthDays, fromCompletion: fromCompletion };
   }
 
   info('Could not parse repeat expression: "' + expr + '"');
@@ -242,7 +256,8 @@ function parseRepeatExpr(expr) {
  */
 function calcNextDate(desc, refDate, completionDate) {
   var base = desc.fromCompletion ? completionDate : refDate;
-  if (!base) base = completionDate; // fallback
+  if (!base) base = completionDate; // fallback to completion date
+  if (!base) base = new Date(); // ultimate fallback to today
 
   switch (desc.type) {
     case 'interval':
@@ -386,20 +401,12 @@ function processFromContent(note, editorContent, silent) {
     var line = lines[i];
     var detected = detectCompletedLine(line);
     if (!detected || !detected.isCompleted) continue;
-    if (!RE_REPEAT.test(line) || !RE_DONE.test(line)) continue;
-
-    info('Found completed repeat at line ' + i + ': ' + line.substring(0, 80));
+    if (!RE_REPEAT.test(line)) continue;
 
     // Extract repeat expression
     var repeatMatch = line.match(RE_REPEAT);
     if (!repeatMatch) continue;
     var repeatExpr = repeatMatch[1];
-
-    // Extract completion date
-    var doneMatch = line.match(RE_DONE);
-    if (!doneMatch) continue;
-    var completionDate = parseDate(doneMatch[1]);
-    if (!completionDate) continue;
 
     // Parse the repeat expression
     var desc = parseRepeatExpr(repeatExpr);
@@ -408,11 +415,29 @@ function processFromContent(note, editorContent, silent) {
       continue;
     }
 
-    // Get the task's due date from the line content
+    // Extract completion date (only required for from-completion mode)
+    var completionDate = null;
+    var doneMatch = line.match(RE_DONE);
+    if (doneMatch) {
+      completionDate = parseDate(doneMatch[1]);
+    }
+
+    if (desc.fromCompletion && !completionDate) {
+      info('Skipping from-completion repeat without @done date: ' + line.substring(0, 80));
+      continue;
+    }
+
+    info('Found completed repeat at line ' + i + ': ' + line.substring(0, 80));
+
+    // Get the task's due/scheduled date
     var dueDate = getTaskDueDate(line, note);
 
+    // For standard repeats (not from-completion), use scheduled date as base
+    // For from-completion repeats, use completion date as base
+    var baseDate = desc.fromCompletion ? completionDate : dueDate;
+
     // Calculate next occurrence
-    var nextDate = calcNextDate(desc, dueDate, completionDate);
+    var nextDate = calcNextDate(desc, baseDate, completionDate);
     if (!nextDate) continue;
 
     var nextDateStr = formatDate(nextDate);
