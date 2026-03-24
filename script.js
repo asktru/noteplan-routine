@@ -423,8 +423,9 @@ function processFromContent(note, editorContent, silent) {
     }
 
     if (desc.fromCompletion && !completionDate) {
-      info('Skipping from-completion repeat without @done date: ' + line.substring(0, 80));
-      continue;
+      // Task was just completed — assume today as completion date
+      completionDate = new Date();
+      info('No @done date, assuming today for from-completion repeat');
     }
 
     info('Found completed repeat at line ' + i + ': ' + line.substring(0, 80));
