@@ -1,0 +1,52 @@
+{
+  "noteplan.minAppVersion": "3.15.0",
+  "macOS.minVersion": "10.13.0",
+  "plugin.id": "asktru.Routine",
+  "plugin.name": "Routine",
+  "plugin.description": "Todoist-like recurring tasks with natural language repeat syntax",
+  "plugin.icon": "fa-rotate",
+  "plugin.iconColor": "#10B981",
+  "plugin.author": "asktru",
+  "plugin.url": "https://github.com/asktru/noteplan-routine",
+  "plugin.version": "1.0.0",
+  "plugin.script": "script.js",
+  "plugin.commands": [
+    {
+      "name": "generate repeats",
+      "alias": ["routine", "rpt"],
+      "description": "Generate next occurrences of completed @repeat() tasks",
+      "jsFunction": "generateRepeats"
+    },
+    {
+      "hidden": true,
+      "name": "onEditorWillSave",
+      "description": "Auto-generate repeats when note is saved",
+      "jsFunction": "onEditorWillSave",
+      "triggersHandled": ["onEditorWillSave"]
+    }
+  ],
+  "plugin.settings": [
+    {
+      "type": "bool",
+      "key": "deleteCompletedRepeat",
+      "title": "Delete completed repeat",
+      "description": "When enabled, the completed task is removed after generating the next repeat. When disabled, the completed task is kept for reference.",
+      "default": false
+    },
+    {
+      "type": "number",
+      "key": "recentNotesCount",
+      "title": "Recent notes to scan",
+      "description": "Number of recently-edited notes to scan for completed repeats (in addition to the current note). Useful when completing tasks via backlinks.",
+      "default": 5
+    },
+    {
+      "type": "string",
+      "key": "_logLevel",
+      "title": "Log level",
+      "description": "Set to DEBUG for verbose logging",
+      "default": "INFO",
+      "required": true
+    }
+  ]
+}
