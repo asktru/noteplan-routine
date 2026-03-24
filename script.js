@@ -55,6 +55,57 @@ function formatDate(d) {
   return y + '-' + m + '-' + day;
 }
 
+/**
+ * Get ISO week number for a date. Returns { year, week }.
+ */
+function getISOWeek(d) {
+  var dt = new Date(d.getTime());
+  dt.setHours(0, 0, 0, 0);
+  // Thursday in current week decides the year
+  dt.setDate(dt.getDate() + 3 - ((dt.getDay() + 6) % 7));
+  var jan4 = new Date(dt.getFullYear(), 0, 4);
+  var dayDiff = (dt.getTime() - jan4.getTime()) / 86400000;
+  var weekNum = 1 + Math.round((dayDiff - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+  return { year: dt.getFullYear(), week: weekNum };
+}
+
+/**
+ * Get the Monday of a given ISO week.
+ */
+function mondayOfISOWeek(year, week) {
+  var jan4 = new Date(year, 0, 4);
+  var mondayW1 = new Date(jan4.getTime());
+  mondayW1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
+  return addDays(mondayW1, (week - 1) * 7);
+}
+
+/**
+ * Get the quarter number (1-4) for a date.
+ */
+function getQuarter(d) {
+  return Math.floor(d.getMonth() / 3) + 1;
+}
+
+/**
+ * Format a scheduling string based on granularity.
+ * granularity: 'day' | 'week' | 'month' | 'quarter' | 'year'
+ */
+function formatScheduleStr(d, granularity) {
+  switch (granularity) {
+    case 'week':
+      var w = getISOWeek(d);
+      return w.year + '-W' + String(w.week).padStart(2, '0');
+    case 'month':
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    case 'quarter':
+      return d.getFullYear() + '-Q' + getQuarter(d);
+    case 'year':
+      return String(d.getFullYear());
+    default:
+      return formatDate(d);
+  }
+}
+
 function addDays(d, n) {
   var r = new Date(d.getTime());
   r.setDate(r.getDate() + n);
@@ -149,43 +200,32 @@ function parseRepeatExpr(expr) {
     s = s.replace(/!/g, '').trim();
   }
 
-  // --- Simple interval format: [+]Nd, [+]Nw, [+]Nm, [+]Ny ---
+  // --- Simple interval format: [+]Nd, [+]Nw, [+]Nm, [+]Nq, [+]Ny ---
   var simpleMatch = s.match(/^(\+)?(\d+)\s*([dwmqy])$/);
   if (simpleMatch) {
     if (simpleMatch[1]) fromCompletion = true;
     var num = parseInt(simpleMatch[2]);
     var unitMap = { d: 'day', w: 'week', m: 'month', q: 'quarter', y: 'year' };
     var unit = unitMap[simpleMatch[3]];
-    if (unit === 'quarter') { unit = 'month'; num *= 3; }
-    if (unit === 'week') { unit = 'day'; num *= 7; }
     return { type: 'interval', unit: unit, count: num, fromCompletion: fromCompletion };
   }
 
-  // --- "other day/week/month/year" ---
-  var otherMatch = s.match(/^other\s+(day|week|month|year)s?$/);
+  // --- "other day/week/month/quarter/year" ---
+  var otherMatch = s.match(/^other\s+(day|week|month|quarter|year)s?$/);
   if (otherMatch) {
-    var u = otherMatch[1];
-    var c = 2;
-    if (u === 'week') { u = 'day'; c = 14; }
-    return { type: 'interval', unit: u, count: c, fromCompletion: fromCompletion };
+    return { type: 'interval', unit: otherMatch[1], count: 2, fromCompletion: fromCompletion };
   }
 
-  // --- "N days/weeks/months/years" ---
-  var intervalMatch = s.match(/^(\d+)\s+(day|week|month|year)s?$/);
+  // --- "N days/weeks/months/quarters/years" ---
+  var intervalMatch = s.match(/^(\d+)\s+(day|week|month|quarter|year)s?$/);
   if (intervalMatch) {
-    var n2 = parseInt(intervalMatch[1]);
-    var u2 = intervalMatch[2];
-    if (u2 === 'week') { u2 = 'day'; n2 *= 7; }
-    return { type: 'interval', unit: u2, count: n2, fromCompletion: fromCompletion };
+    return { type: 'interval', unit: intervalMatch[2], count: parseInt(intervalMatch[1]), fromCompletion: fromCompletion };
   }
 
-  // --- "day" / "week" / "month" / "year" (without number = every 1) ---
-  var singleMatch = s.match(/^(day|week|month|year)s?$/);
+  // --- "day" / "week" / "month" / "quarter" / "year" (without number = every 1) ---
+  var singleMatch = s.match(/^(day|week|month|quarter|year)s?$/);
   if (singleMatch) {
-    var u3 = singleMatch[1];
-    var c3 = 1;
-    if (u3 === 'week') { u3 = 'day'; c3 = 7; }
-    return { type: 'interval', unit: u3, count: c3, fromCompletion: fromCompletion };
+    return { type: 'interval', unit: singleMatch[1], count: 1, fromCompletion: fromCompletion };
   }
 
   // --- Weekday list: "mon, wed, fri" or "monday, wednesday" ---
@@ -262,7 +302,9 @@ function calcNextDate(desc, refDate, completionDate) {
   switch (desc.type) {
     case 'interval':
       if (desc.unit === 'day') return addDays(base, desc.count);
+      if (desc.unit === 'week') return addDays(base, desc.count * 7);
       if (desc.unit === 'month') return addMonths(base, desc.count);
+      if (desc.unit === 'quarter') return addMonths(base, desc.count * 3);
       if (desc.unit === 'year') return addYears(base, desc.count);
       return addDays(base, desc.count);
 
@@ -330,44 +372,84 @@ var RE_REPEAT = /@repeat\(([^)]+)\)/;
 // Regex to detect @done(YYYY-MM-DD ...) — captures the date
 var RE_DONE = /@done\((\d{4}-\d{2}-\d{2})[^)]*\)/;
 
-// Regex to detect scheduled date >YYYY-MM-DD
-var RE_SCHEDULED = />(\d{4}-\d{2}-\d{2})/;
+// Regex patterns for scheduled dates at various granularities
+var RE_SCHED_DAY = />(\d{4}-\d{2}-\d{2})/;
+var RE_SCHED_WEEK = />(\d{4}-W\d{2})/;
+var RE_SCHED_MONTH = />(\d{4}-\d{2})(?!-\d)/;
+var RE_SCHED_QUARTER = />(\d{4}-Q[1-4])/;
+var RE_SCHED_YEAR = />(\d{4})(?![-WQ])/;
+// Combined regex to strip any scheduled date from content
+var RE_SCHED_ANY = />(?:today|tomorrow|yesterday|\d{4}(?:-(?:(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?|Q[1-4]|W(?:0[1-9]|[1-4]\d|5[0-3])))?)/g;
 
 /**
- * Extract the effective "due date" for a task, considering:
- *   1. Explicit >YYYY-MM-DD scheduling
- *   2. Calendar note date (if in a daily/weekly/etc note)
- *   3. Completion date as fallback
+ * Extract the effective "due date" and scheduling granularity for a task.
+ * Returns { date: Date, granularity: 'day'|'week'|'month'|'quarter'|'year' } or null.
+ *
+ * Priority: explicit >date in content > calendar note date > null
  */
-function getTaskDueDate(content, note) {
-  // Check for explicit scheduled date
-  var schedMatch = content.match(RE_SCHEDULED);
-  if (schedMatch) return parseDate(schedMatch[1]);
+function getTaskScheduleInfo(content, note) {
+  // Check for explicit scheduled dates (most specific first)
+  var dayMatch = content.match(RE_SCHED_DAY);
+  if (dayMatch) return { date: parseDate(dayMatch[1]), granularity: 'day' };
 
-  // Check if this is a calendar note
+  var weekMatch = content.match(RE_SCHED_WEEK);
+  if (weekMatch) {
+    var wp = weekMatch[1].match(/(\d{4})-W(\d{2})/);
+    var monday = mondayOfISOWeek(parseInt(wp[1]), parseInt(wp[2]));
+    return { date: monday, granularity: 'week' };
+  }
+
+  var quarterMatch = content.match(RE_SCHED_QUARTER);
+  if (quarterMatch) {
+    var qp = quarterMatch[1].match(/(\d{4})-Q([1-4])/);
+    var qMonth = (parseInt(qp[2]) - 1) * 3;
+    return { date: new Date(parseInt(qp[1]), qMonth, 1), granularity: 'quarter' };
+  }
+
+  var monthMatch = content.match(RE_SCHED_MONTH);
+  if (monthMatch) {
+    var mp = monthMatch[1].match(/(\d{4})-(\d{2})/);
+    return { date: new Date(parseInt(mp[1]), parseInt(mp[2]) - 1, 1), granularity: 'month' };
+  }
+
+  var yearMatch = content.match(RE_SCHED_YEAR);
+  if (yearMatch) {
+    return { date: new Date(parseInt(yearMatch[1]), 0, 1), granularity: 'year' };
+  }
+
+  // Check if this is a calendar note — infer granularity from note type
   if (note && note.type === 'Calendar') {
     var fn = (note.filename || '').replace(/\.\w+$/, '');
     // Daily: YYYYMMDD
     if (/^\d{8}$/.test(fn)) {
-      return new Date(parseInt(fn.substring(0, 4)), parseInt(fn.substring(4, 6)) - 1, parseInt(fn.substring(6, 8)));
+      return {
+        date: new Date(parseInt(fn.substring(0, 4)), parseInt(fn.substring(4, 6)) - 1, parseInt(fn.substring(6, 8))),
+        granularity: 'day'
+      };
     }
-    // Weekly: YYYY-Www — use Monday of that week
-    var weekMatch = fn.match(/^(\d{4})-W(\d{2})$/);
-    if (weekMatch) {
-      var jan4 = new Date(parseInt(weekMatch[1]), 0, 4);
-      var weekNum = parseInt(weekMatch[2]);
-      var mondayOfWeek1 = new Date(jan4.getTime());
-      mondayOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
-      return addDays(mondayOfWeek1, (weekNum - 1) * 7);
+    // Weekly: YYYY-Www
+    var wkMatch = fn.match(/^(\d{4})-W(\d{2})$/);
+    if (wkMatch) {
+      return { date: mondayOfISOWeek(parseInt(wkMatch[1]), parseInt(wkMatch[2])), granularity: 'week' };
     }
-    // Monthly: YYYY-MM — use 1st of month
-    var monthMatch = fn.match(/^(\d{4})-(\d{2})$/);
-    if (monthMatch) {
-      return new Date(parseInt(monthMatch[1]), parseInt(monthMatch[2]) - 1, 1);
+    // Monthly: YYYY-MM
+    var moMatch = fn.match(/^(\d{4})-(\d{2})$/);
+    if (moMatch) {
+      return { date: new Date(parseInt(moMatch[1]), parseInt(moMatch[2]) - 1, 1), granularity: 'month' };
+    }
+    // Quarterly: YYYY-Qn
+    var qMatch = fn.match(/^(\d{4})-Q([1-4])$/);
+    if (qMatch) {
+      return { date: new Date(parseInt(qMatch[1]), (parseInt(qMatch[2]) - 1) * 3, 1), granularity: 'quarter' };
+    }
+    // Yearly: YYYY
+    var yMatch = fn.match(/^(\d{4})$/);
+    if (yMatch) {
+      return { date: new Date(parseInt(yMatch[1]), 0, 1), granularity: 'year' };
     }
   }
 
-  return null; // no due date found
+  return null;
 }
 
 /**
@@ -430,8 +512,19 @@ function processFromContent(note, editorContent, silent) {
 
     info('Found completed repeat at line ' + i + ': ' + line.substring(0, 80));
 
-    // Get the task's due/scheduled date
-    var dueDate = getTaskDueDate(line, note);
+    // Get the task's schedule info (date + granularity)
+    var schedInfo = getTaskScheduleInfo(line, note);
+    var dueDate = schedInfo ? schedInfo.date : null;
+    var granularity = schedInfo ? schedInfo.granularity : 'day';
+
+    // Infer granularity from repeat descriptor if possible
+    // e.g., @repeat(2w) on a daily note should output weekly schedule
+    if (desc.type === 'interval') {
+      if (desc.unit === 'week' && granularity === 'day') granularity = 'week';
+      else if (desc.unit === 'quarter' && (granularity === 'day' || granularity === 'month')) granularity = 'quarter';
+      else if (desc.unit === 'year' && granularity !== 'year') granularity = 'year';
+      else if (desc.unit === 'month' && granularity === 'day') granularity = 'month';
+    }
 
     // For standard repeats (not from-completion), use scheduled date as base
     // For from-completion repeats, use completion date as base
@@ -441,18 +534,17 @@ function processFromContent(note, editorContent, silent) {
     var nextDate = calcNextDate(desc, baseDate, completionDate);
     if (!nextDate) continue;
 
-    var nextDateStr = formatDate(nextDate);
-    info('Next occurrence: ' + nextDateStr + ' (from "' + repeatExpr + '")');
+    var nextSchedStr = formatScheduleStr(nextDate, granularity);
+    info('Next occurrence: ' + nextSchedStr + ' (granularity: ' + granularity + ', from "' + repeatExpr + '")');
 
     // Build new task content — extract just the task text (after the marker)
     var taskContent = line.replace(/^[\s]*[-*+]\s+\[x\]\s+/, '');
-    // Remove @done(...) and old scheduled dates
+    // Remove @done(...) and old scheduled dates (all formats)
     taskContent = taskContent.replace(RE_DONE, '').trim();
-    taskContent = taskContent.replace(/>\d{4}-\d{2}-\d{2}/g, '').trim();
-    taskContent = taskContent.replace(/>today/g, '').trim();
+    taskContent = taskContent.replace(RE_SCHED_ANY, '').trim();
     taskContent = taskContent.replace(/\s{2,}/g, ' ').trim();
-    // Add new scheduled date
-    taskContent = taskContent + ' >' + nextDateStr;
+    // Add new scheduled date in the appropriate format
+    taskContent = taskContent + ' >' + nextSchedStr;
 
     // Determine indentation from original line
     var indentMatch = line.match(/^(\s*)/);
@@ -460,15 +552,28 @@ function processFromContent(note, editorContent, silent) {
 
     if (note.type === 'Calendar') {
       // For calendar notes: append to the target date's calendar note
-      var targetDateStr = nextDateStr.replace(/-/g, '');
-      var targetNote = DataStore.calendarNoteByDateString(targetDateStr);
+      // Use the appropriate date string format for DataStore lookup
+      var targetLookup;
+      if (granularity === 'day') {
+        targetLookup = formatDate(nextDate).replace(/-/g, '');
+      } else if (granularity === 'week') {
+        var isoW = getISOWeek(nextDate);
+        targetLookup = isoW.year + '-W' + String(isoW.week).padStart(2, '0');
+      } else if (granularity === 'month') {
+        targetLookup = nextDate.getFullYear() + '-' + String(nextDate.getMonth() + 1).padStart(2, '0');
+      } else if (granularity === 'quarter') {
+        targetLookup = nextDate.getFullYear() + '-Q' + getQuarter(nextDate);
+      } else {
+        targetLookup = String(nextDate.getFullYear());
+      }
+      var targetNote = DataStore.calendarNoteByDateString(targetLookup);
       if (targetNote) {
         if (detected.isChecklist) {
           targetNote.appendParagraph(taskContent, 'checklist');
         } else {
           targetNote.appendTodo(taskContent);
         }
-        info('Appended repeat to calendar note: ' + nextDateStr);
+        info('Appended repeat to calendar note: ' + targetLookup);
       }
     } else {
       // For project notes: insert before the completed task
@@ -572,36 +677,57 @@ function processNote(note, silent) {
       continue;
     }
 
-    // Get the task's due date
-    var dueDate = getTaskDueDate(rawContent, note);
+    // Get the task's schedule info (date + granularity)
+    var schedInfo = getTaskScheduleInfo(rawContent, note);
+    var dueDate = schedInfo ? schedInfo.date : null;
+    var granularity = schedInfo ? schedInfo.granularity : 'day';
+
+    // Infer granularity from repeat descriptor
+    if (desc.type === 'interval') {
+      if (desc.unit === 'week' && granularity === 'day') granularity = 'week';
+      else if (desc.unit === 'quarter' && (granularity === 'day' || granularity === 'month')) granularity = 'quarter';
+      else if (desc.unit === 'year' && granularity !== 'year') granularity = 'year';
+      else if (desc.unit === 'month' && granularity === 'day') granularity = 'month';
+    }
+
+    var baseDate = desc.fromCompletion ? completionDate : dueDate;
 
     // Calculate next occurrence
-    var nextDate = calcNextDate(desc, dueDate, completionDate);
+    var nextDate = calcNextDate(desc, baseDate, completionDate);
     if (!nextDate) {
       info('Could not calculate next date for: "' + repeatExpr + '"');
       continue;
     }
 
-    var nextDateStr = formatDate(nextDate);
-    log('Next occurrence: ' + nextDateStr + ' (from "' + repeatExpr + '")');
+    var nextSchedStr = formatScheduleStr(nextDate, granularity);
+    log('Next occurrence: ' + nextSchedStr + ' (granularity: ' + granularity + ', from "' + repeatExpr + '")');
 
     // Build the new task content:
     // 1. Remove @done(...) timestamp
-    // 2. Remove old >YYYY-MM-DD scheduling (if any)
-    // 3. Add new >YYYY-MM-DD scheduling
+    // 2. Remove old scheduling (any format)
+    // 3. Add new scheduling in the appropriate format
     var newContent = rawContent;
     newContent = newContent.replace(RE_DONE, '').trim();
-    newContent = newContent.replace(/>\d{4}-\d{2}-\d{2}/g, '').trim();
-    newContent = newContent.replace(/>today/g, '').trim();
-    // Clean up double spaces
+    newContent = newContent.replace(RE_SCHED_ANY, '').trim();
     newContent = newContent.replace(/\s{2,}/g, ' ').trim();
-    // Add new scheduled date
-    newContent = newContent + ' >' + nextDateStr;
+    newContent = newContent + ' >' + nextSchedStr;
 
     // Determine where to insert the new task
     if (note.type === 'Calendar') {
-      // For calendar notes: append to the target date's calendar note
-      var targetNote = DataStore.calendarNoteByDateString(nextDateStr.replace(/-/g, ''));
+      var targetLookup;
+      if (granularity === 'day') {
+        targetLookup = formatDate(nextDate).replace(/-/g, '');
+      } else if (granularity === 'week') {
+        var isoW2 = getISOWeek(nextDate);
+        targetLookup = isoW2.year + '-W' + String(isoW2.week).padStart(2, '0');
+      } else if (granularity === 'month') {
+        targetLookup = nextDate.getFullYear() + '-' + String(nextDate.getMonth() + 1).padStart(2, '0');
+      } else if (granularity === 'quarter') {
+        targetLookup = nextDate.getFullYear() + '-Q' + getQuarter(nextDate);
+      } else {
+        targetLookup = String(nextDate.getFullYear());
+      }
+      var targetNote = DataStore.calendarNoteByDateString(targetLookup);
       if (targetNote) {
         // Insert as an open task (preserving original type: task or checklist)
         var rawLine = para.rawContent || '';
