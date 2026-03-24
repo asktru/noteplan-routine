@@ -356,6 +356,144 @@ function getTaskDueDate(content, note) {
 }
 
 /**
+ * Detect if a raw line is a completed task or checklist.
+ * Returns { isCompleted, isChecklist } or null.
+ */
+function detectCompletedLine(line) {
+  var trimmed = line.trimStart();
+  // Task: "- [x]" or "* [x]"
+  if (/^[-*]\s+\[x\]\s/.test(trimmed)) return { isCompleted: true, isChecklist: false };
+  // Checklist: "+ [x]"
+  if (/^\+\s+\[x\]\s/.test(trimmed)) return { isCompleted: true, isChecklist: true };
+  return null;
+}
+
+/**
+ * Process from raw editor content (string). This is used for onEditorWillSave
+ * where note.paragraphs may be stale but Editor.content has the latest changes.
+ * Returns number of repeats generated.
+ */
+function processFromContent(note, editorContent, silent) {
+  if (!note || !editorContent) return 0;
+  var lines = editorContent.split('\n');
+  var generated = 0;
+  var linesToInsert = []; // { index, content }
+  var linesToModify = []; // { index, content } — strip @repeat from completed line
+  var linesToDelete = []; // indices
+  var config = getSettings();
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var detected = detectCompletedLine(line);
+    if (!detected || !detected.isCompleted) continue;
+    if (!RE_REPEAT.test(line) || !RE_DONE.test(line)) continue;
+
+    info('Found completed repeat at line ' + i + ': ' + line.substring(0, 80));
+
+    // Extract repeat expression
+    var repeatMatch = line.match(RE_REPEAT);
+    if (!repeatMatch) continue;
+    var repeatExpr = repeatMatch[1];
+
+    // Extract completion date
+    var doneMatch = line.match(RE_DONE);
+    if (!doneMatch) continue;
+    var completionDate = parseDate(doneMatch[1]);
+    if (!completionDate) continue;
+
+    // Parse the repeat expression
+    var desc = parseRepeatExpr(repeatExpr);
+    if (!desc) {
+      info('Skipping unparseable repeat: "' + repeatExpr + '"');
+      continue;
+    }
+
+    // Get the task's due date from the line content
+    var dueDate = getTaskDueDate(line, note);
+
+    // Calculate next occurrence
+    var nextDate = calcNextDate(desc, dueDate, completionDate);
+    if (!nextDate) continue;
+
+    var nextDateStr = formatDate(nextDate);
+    info('Next occurrence: ' + nextDateStr + ' (from "' + repeatExpr + '")');
+
+    // Build new task content — extract just the task text (after the marker)
+    var taskContent = line.replace(/^[\s]*[-*+]\s+\[x\]\s+/, '');
+    // Remove @done(...) and old scheduled dates
+    taskContent = taskContent.replace(RE_DONE, '').trim();
+    taskContent = taskContent.replace(/>\d{4}-\d{2}-\d{2}/g, '').trim();
+    taskContent = taskContent.replace(/>today/g, '').trim();
+    taskContent = taskContent.replace(/\s{2,}/g, ' ').trim();
+    // Add new scheduled date
+    taskContent = taskContent + ' >' + nextDateStr;
+
+    // Determine indentation from original line
+    var indentMatch = line.match(/^(\s*)/);
+    var indent = indentMatch ? indentMatch[1] : '';
+
+    if (note.type === 'Calendar') {
+      // For calendar notes: append to the target date's calendar note
+      var targetDateStr = nextDateStr.replace(/-/g, '');
+      var targetNote = DataStore.calendarNoteByDateString(targetDateStr);
+      if (targetNote) {
+        if (detected.isChecklist) {
+          targetNote.appendParagraph(taskContent, 'checklist');
+        } else {
+          targetNote.appendTodo(taskContent);
+        }
+        info('Appended repeat to calendar note: ' + nextDateStr);
+      }
+    } else {
+      // For project notes: insert before the completed task
+      var marker = detected.isChecklist ? '+ [ ] ' : '- [ ] ';
+      linesToInsert.push({ index: i, content: indent + marker + taskContent });
+    }
+
+    // Strip @repeat() from the completed line so it won't trigger again on next save
+    if (config.deleteCompletedRepeat) {
+      linesToDelete.push(i);
+    } else {
+      var modifiedLine = line.replace(RE_REPEAT, '').replace(/\s{2,}/g, ' ').trimEnd();
+      linesToModify.push({ index: i, content: modifiedLine });
+    }
+
+    generated++;
+  }
+
+  // Apply modifications, insertions, and deletions to the editor content
+  if (linesToInsert.length > 0 || linesToDelete.length > 0 || linesToModify.length > 0) {
+    // Apply modifications first (strip @repeat from completed lines)
+    for (var mod = 0; mod < linesToModify.length; mod++) {
+      lines[linesToModify[mod].index] = linesToModify[mod].content;
+    }
+
+    // Process insertions backwards
+    for (var k = linesToInsert.length - 1; k >= 0; k--) {
+      var ins = linesToInsert[k];
+      lines.splice(ins.index, 0, ins.content);
+    }
+
+    if (linesToDelete.length > 0) {
+      // Adjust indices for insertions
+      for (var d = linesToDelete.length - 1; d >= 0; d--) {
+        var delIdx = linesToDelete[d];
+        // Account for prior insertions
+        var offset = 0;
+        for (var m = 0; m < linesToInsert.length; m++) {
+          if (linesToInsert[m].index <= delIdx) offset++;
+        }
+        lines.splice(delIdx + offset, 1);
+      }
+    }
+
+    Editor.content = lines.join('\n');
+  }
+
+  return generated;
+}
+
+/**
  * Process a single note: find completed tasks with @repeat(), generate next occurrences.
  * Returns number of repeats generated.
  */
@@ -369,10 +507,14 @@ function processNote(note, silent) {
   var toProcess = [];
   for (var i = 0; i < paras.length; i++) {
     var p = paras[i];
-    // Must be a completed task (done) or cancelled (if we wanted to support that)
-    if (p.type !== 'done') continue;
     var content = p.content || '';
-    if (!RE_REPEAT.test(content) || !RE_DONE.test(content)) continue;
+    var rawContent = p.rawContent || '';
+    // Use rawContent to detect completion (more reliable than p.type)
+    var detected = detectCompletedLine(rawContent);
+    if (!detected || !detected.isCompleted) continue;
+    // Check both content and rawContent for @repeat and @done
+    var checkStr = rawContent || content;
+    if (!RE_REPEAT.test(checkStr) || !RE_DONE.test(checkStr)) continue;
     toProcess.push(i);
   }
 
@@ -556,15 +698,20 @@ async function generateRepeats() {
  */
 async function onEditorWillSave() {
   try {
+    info('onEditorWillSave triggered');
     var config = getSettings();
 
-    // Process current editor note
+    // The Editor content reflects the user's latest changes (including newly completed tasks),
+    // but note.paragraphs may be stale. Parse the Editor.content directly.
     var currentNote = Editor.note;
-    if (currentNote) {
-      processNote(currentNote, true);
+    var editorContent = Editor.content || '';
+
+    if (currentNote && editorContent) {
+      var count = processFromContent(currentNote, editorContent, true);
+      if (count > 0) info('Generated ' + count + ' repeat(s) from editor');
     }
 
-    // Process recently edited notes
+    // Process recently edited notes (these use note.paragraphs which are up-to-date for non-editor notes)
     var currentFilename = currentNote ? currentNote.filename : '';
     var recentNotes = getRecentNotes(config.recentNotesCount, currentFilename);
     for (var i = 0; i < recentNotes.length; i++) {
