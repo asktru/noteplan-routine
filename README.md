@@ -1,49 +1,85 @@
 # Routine for NotePlan
 
-Todoist-like recurring tasks for [NotePlan](https://noteplan.co). Supports natural language repeat expressions like `every 3 days`, `every Wed, Fri`, `every 3rd Sunday`, and more.
+A recurring task plugin for [NotePlan](https://noteplan.co) with Todoist-like repeat syntax. Automatically generates the next occurrence of a repeating task when you complete it.
 
-## Syntax
+## Repeat Syntax
 
 Add `@repeat(expression)` to any task or checklist item:
 
-| Expression | Meaning |
-|------------|---------|
-| `@repeat(every day)` | Every day |
-| `@repeat(every 3 days)` | Every 3 days |
-| `@repeat(every other day)` | Every 2 days |
-| `@repeat(every week)` | Every 7 days |
-| `@repeat(every 2 weeks)` | Every 14 days |
-| `@repeat(every other week)` | Every 14 days |
-| `@repeat(every month)` | Every month |
-| `@repeat(every 3 months)` | Every 3 months |
-| `@repeat(every year)` | Every year |
-| `@repeat(every Mon, Wed, Fri)` | On specific weekdays |
-| `@repeat(ev Tue, Thu)` | Shorthand for weekdays |
-| `@repeat(every 3rd Sunday)` | 3rd Sunday of every month |
-| `@repeat(every last Friday)` | Last Friday of every month |
-| `@repeat(every 1st Monday)` | 1st Monday of every month |
-| `@repeat(every 25th)` | 25th of every month |
-| `@repeat(3rd, 15th, last)` | 3rd, 15th, and last day of month |
-| `@repeat(1w)` | Simple interval: 1 week |
-| `@repeat(+2m)` | 2 months after completion (not due date) |
+### Interval Repeats
 
-### Relative vs Completion-based
+| Syntax | Meaning |
+|--------|---------|
+| `@repeat(1d)` or `@repeat(day)` | Every day |
+| `@repeat(3d)` or `@repeat(3 days)` | Every 3 days |
+| `@repeat(1w)` or `@repeat(week)` | Every week |
+| `@repeat(2w)` or `@repeat(every 2 weeks)` | Every 2 weeks |
+| `@repeat(other week)` | Every other week |
+| `@repeat(1m)` or `@repeat(month)` | Every month |
+| `@repeat(3m)` or `@repeat(every 3 months)` | Every 3 months |
+| `@repeat(1q)` or `@repeat(quarter)` | Every quarter |
+| `@repeat(1y)` or `@repeat(year)` | Every year |
 
-- **Without `+` prefix**: next date is calculated from the task's due date (or note date for calendar notes)
-- **With `+` prefix**: next date is calculated from when you actually completed the task
+### Weekday Repeats
+
+| Syntax | Meaning |
+|--------|---------|
+| `@repeat(Mon, Wed, Fri)` | Every Monday, Wednesday, and Friday |
+| `@repeat(ev Tue, Thu)` | Every Tuesday and Thursday |
+| `@repeat(weekdays)` or `@repeat(weekday)` | Monday through Friday |
+
+### Month-day Repeats
+
+| Syntax | Meaning |
+|--------|---------|
+| `@repeat(25th)` | 25th of every month |
+| `@repeat(1st, 15th)` | 1st and 15th of every month |
+| `@repeat(3rd, 15th, last)` | 3rd, 15th, and last day of every month |
+
+### Nth Weekday Repeats
+
+| Syntax | Meaning |
+|--------|---------|
+| `@repeat(3rd Sunday)` | 3rd Sunday of every month |
+| `@repeat(1st Monday)` | 1st Monday of every month |
+| `@repeat(last Friday)` | Last Friday of every month |
+
+### Prefix Shortcuts
+
+- `every` / `ev` — optional prefix for readability (`@repeat(every 3 days)` = `@repeat(3 days)`)
+- Can be omitted entirely: `@repeat(3 days)` works
+
+### Repeat from Completion Date
+
+By default, the next occurrence is calculated from the **scheduled date** of the task. To calculate from the **completion date** instead (useful for habits where regularity matters more than fixed dates):
+
+| Syntax | Meaning |
+|--------|---------|
+| `@repeat(!3 days)` | 3 days from completion |
+| `@repeat(every! 2 weeks)` | 2 weeks from completion |
+| `@repeat(+3d)` | 3 days from completion (shorthand) |
+
+If no `@done()` tag is present, the plugin assumes today as the completion date.
+
+## Scheduling Granularity
+
+The plugin preserves NotePlan's scheduling format. If your task uses weekly scheduling, the repeat will too:
+
+| Original | Repeat | New task |
+|----------|--------|----------|
+| `>2026-03-24` | `@repeat(3d)` | `>2026-03-27` |
+| `>2026-W13` | `@repeat(2w)` | `>2026-W15` |
+| `>2026-03` | `@repeat(1m)` | `>2026-04` |
+| `>2026-Q1` | `@repeat(1q)` | `>2026-Q2` |
+| `>2026` | `@repeat(1y)` | `>2027` |
+
+When the repeat unit implies a broader granularity than the original schedule (e.g., `@repeat(2w)` on a daily-scheduled task), the output automatically upgrades to the appropriate format.
 
 ## How It Works
 
-1. When you complete a task with `@repeat(...)`, the plugin generates a new open copy with the next scheduled date (`>YYYY-MM-DD`)
-2. The completed task is kept for reference (or deleted if configured)
-3. For **calendar notes**: the new task is appended to the appropriate future daily note
-4. For **project notes**: the new task is inserted before the completed one
-
-## Trigger Methods
-
 ### Automatic (recommended)
 
-Add this to your note's frontmatter:
+Add this frontmatter to any note where you want automatic repeat generation:
 
 ```yaml
 ---
@@ -51,20 +87,27 @@ triggers: onEditorWillSave => asktru.Routine.onEditorWillSave
 ---
 ```
 
-The plugin will automatically generate repeats whenever you save the note.
+For daily notes, add it to your daily note template so all new notes get it automatically.
+
+When you complete a task with `@repeat()`, the plugin:
+1. Detects the newly completed task
+2. Calculates the next occurrence
+3. Creates a new open task with the updated schedule
+4. Strips `@repeat()` from the completed task to prevent duplicates
 
 ### Manual
 
-Run the `/generate repeats` command (alias: `/routine` or `/rpt`) from the command bar.
+Run the **Generate Repeats** command from NotePlan's command bar (`/generate repeats`). This scans:
+- The currently open note
+- The 5 most recently edited notes (to catch tasks completed via backlinks)
 
-### Cross-note Detection
+## Behavior Details
 
-The plugin scans not just the current note but also the 5 most recently edited notes. This handles the common case of completing a task via a backlink in a different note.
-
-## Settings
-
-- **Delete completed repeat** — remove the completed task after generating the next occurrence (default: off)
-- **Recent notes to scan** — how many recently-edited notes to check beyond the current one (default: 5)
+- After generating a repeat, `@repeat()` is **removed** from the completed task — this prevents duplicate generation on subsequent saves
+- The new task inherits the original task's type (task `- [ ]` or checklist `+ [ ]`)
+- Indentation is preserved for subtasks
+- For calendar notes, the new task is appended to the **target date's** calendar note
+- For project notes, the new task is inserted **before** the completed task
 
 ## Installation
 
@@ -73,7 +116,11 @@ The plugin scans not just the current note but also the 5 most recently edited n
    ~/Library/Containers/co.noteplan.NotePlan*/Data/Library/Application Support/co.noteplan.NotePlan*/Plugins/
    ```
 2. Restart NotePlan
-3. Add the trigger frontmatter to notes where you want automatic repeat generation
+3. Add the `onEditorWillSave` trigger to your notes or daily note template
+
+## Settings
+
+- **Delete completed repeat tasks** — when enabled, removes the completed task entirely instead of just stripping `@repeat()` (default: off)
 
 ## License
 

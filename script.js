@@ -756,7 +756,7 @@ function processNote(note, silent) {
 
     generated++;
 
-    // Optionally delete the completed task
+    // Strip @repeat() from the completed task to prevent re-triggering
     if (config.deleteCompletedRepeat) {
       // Re-read paragraphs since we inserted above
       var freshParas = note.paragraphs;
@@ -765,6 +765,17 @@ function processNote(note, silent) {
       if (deleteIdx < freshParas.length) {
         note.removeParagraphAtIndex(deleteIdx);
         log('Deleted completed repeat task');
+      }
+    } else {
+      // Strip @repeat() from the completed line so it won't trigger again
+      var freshParas2 = note.paragraphs;
+      var modifyIdx = note.type === 'Calendar' ? idx : idx + 1;
+      if (modifyIdx < freshParas2.length) {
+        var oldContent = freshParas2[modifyIdx].content || '';
+        var cleanedContent = oldContent.replace(RE_REPEAT, '').replace(/\s{2,}/g, ' ').trim();
+        freshParas2[modifyIdx].content = cleanedContent;
+        note.updateParagraph(freshParas2[modifyIdx]);
+        log('Stripped @repeat from completed task');
       }
     }
   }
