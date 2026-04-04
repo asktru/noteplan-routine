@@ -829,14 +829,33 @@ async function generateRepeats(noteArg) {
     var config = getSettings();
     var totalGenerated = 0;
 
-    // If a specific note was passed (e.g., from another plugin), process it directly
-    if (noteArg && typeof noteArg === 'object' && noteArg.paragraphs) {
-      var count0 = processNote(noteArg, true);
-      totalGenerated += count0;
-      if (totalGenerated > 0) {
-        info(totalGenerated + ' repeat(s) generated from passed note');
+    // If a specific note or filename was passed (e.g., from another plugin), process it directly
+    if (noteArg) {
+      var targetNote = null;
+      if (typeof noteArg === 'object' && noteArg.paragraphs) {
+        targetNote = noteArg;
+      } else if (typeof noteArg === 'string') {
+        // Filename passed — look it up
+        targetNote = DataStore.projectNoteByFilename(noteArg);
+        if (!targetNote) {
+          // Try calendar notes
+          var calNotes = DataStore.calendarNotes;
+          for (var cn = 0; cn < calNotes.length; cn++) {
+            if (calNotes[cn].filename === noteArg) { targetNote = calNotes[cn]; break; }
+          }
+        }
       }
-      return;
+      if (targetNote) {
+        info('Processing specific note: ' + (targetNote.filename || 'unknown'));
+        var count0 = processNote(targetNote, true);
+        totalGenerated += count0;
+        if (totalGenerated > 0) {
+          info(totalGenerated + ' repeat(s) generated from passed note');
+        }
+        return;
+      } else {
+        info('Could not find note for argument: ' + String(noteArg));
+      }
     }
 
     // 1. Process the current editor note
