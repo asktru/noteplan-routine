@@ -643,9 +643,9 @@ function processNote(note, silent) {
     // Use rawContent to detect completion (more reliable than p.type)
     var detected = detectCompletedLine(rawContent);
     if (!detected || !detected.isCompleted) continue;
-    // Check both content and rawContent for @repeat and @done
+    // Check for @repeat (don't require @done — we can assume today as completion date)
     var checkStr = rawContent || content;
-    if (!RE_REPEAT.test(checkStr) || !RE_DONE.test(checkStr)) continue;
+    if (!RE_REPEAT.test(checkStr)) continue;
     toProcess.push(i);
   }
 
@@ -664,11 +664,10 @@ function processNote(note, silent) {
     if (!repeatMatch) continue;
     var repeatExpr = repeatMatch[1];
 
-    // Extract completion date
+    // Extract completion date (optional — assume today if missing)
     var doneMatch = rawContent.match(RE_DONE);
-    if (!doneMatch) continue;
-    var completionDate = parseDate(doneMatch[1]);
-    if (!completionDate) continue;
+    var completionDate = doneMatch ? parseDate(doneMatch[1]) : new Date();
+    if (!completionDate) completionDate = new Date();
 
     // Parse the repeat expression
     var desc = parseRepeatExpr(repeatExpr);
