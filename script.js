@@ -824,10 +824,20 @@ function getRecentNotes(count, excludeFilename) {
 /**
  * Manual command: scan current note + recent notes for completed @repeat() tasks.
  */
-async function generateRepeats() {
+async function generateRepeats(noteArg) {
   try {
     var config = getSettings();
     var totalGenerated = 0;
+
+    // If a specific note was passed (e.g., from another plugin), process it directly
+    if (noteArg && typeof noteArg === 'object' && noteArg.paragraphs) {
+      var count0 = processNote(noteArg, true);
+      totalGenerated += count0;
+      if (totalGenerated > 0) {
+        info(totalGenerated + ' repeat(s) generated from passed note');
+      }
+      return;
+    }
 
     // 1. Process the current editor note
     var currentNote = Editor.note;
