@@ -640,16 +640,27 @@ function processNote(note, silent) {
     var p = paras[i];
     var content = p.content || '';
     var rawContent = p.rawContent || '';
-    // Use rawContent to detect completion (more reliable than p.type)
+    var hasRepeat = RE_REPEAT.test(rawContent || content);
+    if (hasRepeat) {
+      console.log('Routine: para ' + i + ' type=' + p.type + ' hasRepeat=true rawContent="' + rawContent.substring(0, 80) + '"');
+    }
+    // Check completion via both rawContent and para.type
     var detected = detectCompletedLine(rawContent);
-    if (!detected || !detected.isCompleted) continue;
-    // Check for @repeat (don't require @done — we can assume today as completion date)
+    var isCompletedByType = (p.type === 'done' || p.type === 'checklistDone' || p.type === 'cancelled' || p.type === 'checklistCancelled');
+    if (!detected || !detected.isCompleted) {
+      // Fall back to para.type if rawContent doesn't show [x] yet
+      if (!isCompletedByType) continue;
+    }
+    // Check for @repeat
     var checkStr = rawContent || content;
     if (!RE_REPEAT.test(checkStr)) continue;
     toProcess.push(i);
   }
 
-  if (toProcess.length === 0) return 0;
+  if (toProcess.length === 0) {
+    console.log('Routine: No completed @repeat tasks found in ' + (note.filename || 'unknown') + ' (' + paras.length + ' paragraphs)');
+    return 0;
+  }
 
   log('Found ' + toProcess.length + ' completed repeat task(s) in: ' + (note.filename || 'unknown'));
 
@@ -826,6 +837,7 @@ function getRecentNotes(count, excludeFilename) {
  */
 async function generateRepeats(noteArg) {
   try {
+    console.log('Routine generateRepeats called, noteArg type=' + typeof noteArg + ', value=' + String(noteArg).substring(0, 100));
     var config = getSettings();
     var totalGenerated = 0;
 
