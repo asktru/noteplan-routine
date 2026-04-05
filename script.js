@@ -982,10 +982,14 @@ function scanRepeatingTasks() {
   var calNotes = DataStore.calendarNotes;
 
   function processNote(note) {
-    if (!note || !note.paragraphs) return;
+    if (!note) return;
     var fn = note.filename || '';
     if (fn.indexOf('@Archive') >= 0 || fn.indexOf('@Trash') >= 0 || fn.indexOf('@Templates') >= 0) return;
+    // Quick check: skip note entirely if it has no @repeat anywhere
+    var noteContent = note.content || '';
+    if (noteContent.indexOf('@repeat') < 0) return;
     var paras = note.paragraphs;
+    if (!paras) return;
     for (var i = 0; i < paras.length; i++) {
       var p = paras[i];
       var content = p.content || '';
@@ -1314,7 +1318,9 @@ async function showRoutineDashboard() {
     CommandBar.showLoading(true, 'Scanning repeating tasks...');
     await CommandBar.onAsyncThread();
 
+    var t0 = Date.now();
     var tasks = scanRepeatingTasks();
+    console.log('Routine: scan took ' + (Date.now() - t0) + 'ms, found ' + tasks.length + ' tasks');
 
     // Filter due tasks (overdue + today)
     var today = formatDate(new Date());
@@ -1327,6 +1333,8 @@ async function showRoutineDashboard() {
     var byDateHTML = buildDashboardBody(tasks, 'date');
     var byNoteDueHTML = buildDashboardBody(dueTasks, 'note');
     var byDateDueHTML = buildDashboardBody(dueTasks, 'date');
+
+    console.log('Routine: pre-build took ' + (Date.now() - t0) + 'ms');
 
     var bodyHTML = '<div class="rt-header">';
     bodyHTML += '<span class="rt-title">Repeating Tasks</span>';
