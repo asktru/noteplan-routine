@@ -1079,7 +1079,20 @@ function buildRoutineCSS() {
 '}\n' +
 '.rt-title { font-size: 14px; font-weight: 700; }\n' +
 '.rt-count { font-size: 12px; color: var(--rt-text-muted); }\n' +
-'.rt-group-btns { margin-left: auto; display: flex; gap: 4px; }\n' +
+'.rt-filter-btns { display: flex; gap: 4px; margin-left: auto; }\n' +
+'.rt-filter-btn {\n' +
+'  padding: 3px 10px; font-size: 11px; font-weight: 500;\n' +
+'  border-radius: 100px; border: none; background: transparent;\n' +
+'  color: var(--rt-text-muted); cursor: pointer;\n' +
+'}\n' +
+'.rt-filter-btn:hover { background: var(--rt-border); color: var(--rt-text); }\n' +
+'.rt-filter-btn.active { background: var(--rt-accent-soft); color: var(--rt-accent); font-weight: 600; }\n' +
+'.rt-due-count {\n' +
+'  font-size: 10px; font-weight: 700; padding: 0 4px;\n' +
+'  border-radius: 100px; background: var(--rt-border);\n' +
+'}\n' +
+'.rt-filter-btn.active .rt-due-count { background: var(--rt-accent); color: #fff; }\n' +
+'.rt-group-btns { display: flex; gap: 4px; }\n' +
 '.rt-group-btn {\n' +
 '  padding: 3px 10px; font-size: 11px; font-weight: 500;\n' +
 '  border-radius: 100px; border: none; background: transparent;\n' +
@@ -1100,6 +1113,8 @@ function buildRoutineCSS() {
 '  display: inline-flex; align-items: center; border-radius: 100px;\n' +
 '  background: var(--rt-border); color: var(--rt-text-muted);\n' +
 '}\n' +
+'.rt-group-header[data-action] { cursor: pointer; }\n' +
+'.rt-group-header[data-action]:hover span:first-child { color: var(--rt-accent); }\n' +
 '.rt-task {\n' +
 '  display: grid; grid-template-columns: 24px 1fr auto auto auto;\n' +
 '  gap: 8px; align-items: center;\n' +
@@ -1116,13 +1131,15 @@ function buildRoutineCSS() {
 '.rt-repeat-badge {\n' +
 '  font-size: 10px; padding: 2px 6px; border-radius: 3px;\n' +
 '  background: var(--rt-accent-soft); color: var(--rt-accent);\n' +
-'  white-space: nowrap; cursor: default;\n' +
+'  white-space: nowrap; cursor: pointer;\n' +
 '}\n' +
+'.rt-repeat-badge:hover { filter: brightness(1.2); }\n' +
 '.rt-date-badge {\n' +
 '  font-size: 10px; padding: 2px 6px; border-radius: 3px;\n' +
 '  background: var(--rt-border); color: var(--rt-text-muted);\n' +
-'  white-space: nowrap;\n' +
+'  white-space: nowrap; cursor: pointer;\n' +
 '}\n' +
+'.rt-date-badge:hover { filter: brightness(1.15); }\n' +
 '.rt-date-badge.overdue { background: color-mix(in srgb, var(--rt-red) 15%, transparent); color: var(--rt-red); }\n' +
 '.rt-date-badge.today { background: color-mix(in srgb, var(--rt-orange) 15%, transparent); color: var(--rt-orange); }\n' +
 '.rt-note-badge {\n' +
@@ -1135,6 +1152,7 @@ function buildRoutineCSS() {
 '.rt-pri {\n' +
 '  font-size: 9px; font-weight: 800; padding: 0 4px; height: 16px;\n' +
 '  display: inline-flex; align-items: center; border-radius: 3px;\n' +
+'  position: relative; top: -1px; margin-right: 4px;\n' +
 '}\n' +
 '.rt-pri-1 { background: rgba(255,85,85,0.27); color: #FFDBBE; }\n' +
 '.rt-pri-2 { background: rgba(255,85,85,0.47); color: #FFCCCC; }\n' +
@@ -1142,6 +1160,67 @@ function buildRoutineCSS() {
 '.rt-empty {\n' +
 '  text-align: center; padding: 40px; color: var(--rt-text-muted);\n' +
 '}\n' +
+/* Modal */
+'.rt-modal-overlay {\n' +
+'  position: fixed; inset: 0; z-index: 600;\n' +
+'  background: color-mix(in srgb, black 50%, transparent);\n' +
+'  display: flex; align-items: center; justify-content: center;\n' +
+'}\n' +
+'.rt-modal {\n' +
+'  background: var(--rt-bg-card); border: 1px solid var(--rt-border-strong);\n' +
+'  border-radius: var(--rt-radius); padding: 20px;\n' +
+'  min-width: 280px; max-width: 360px;\n' +
+'}\n' +
+'.rt-modal-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; }\n' +
+'.rt-modal-input {\n' +
+'  width: 100%; padding: 7px 10px; font-size: 13px;\n' +
+'  border: 1px solid var(--rt-border-strong); border-radius: var(--rt-radius-sm);\n' +
+'  background: var(--rt-bg); color: var(--rt-text); outline: none;\n' +
+'  margin-bottom: 12px;\n' +
+'}\n' +
+'.rt-modal-input:focus { border-color: var(--rt-accent); }\n' +
+'.rt-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }\n' +
+'.rt-modal-btn {\n' +
+'  padding: 6px 14px; font-size: 12px; font-weight: 600;\n' +
+'  border-radius: var(--rt-radius-sm); border: 1px solid var(--rt-border-strong);\n' +
+'  background: var(--rt-bg-card); color: var(--rt-text); cursor: pointer;\n' +
+'}\n' +
+'.rt-modal-btn:hover { background: var(--rt-bg-elevated); }\n' +
+'.rt-modal-btn.primary { background: var(--rt-accent); color: #fff; border-color: var(--rt-accent); }\n' +
+'.rt-modal-btn.primary:hover { filter: brightness(1.1); }\n' +
+
+/* Calendar Picker */
+'.rt-sched-picker {\n' +
+'  position: fixed; z-index: 500; width: 290px;\n' +
+'  background: var(--rt-bg-card); border: 1px solid var(--rt-border-strong);\n' +
+'  border-radius: var(--rt-radius); box-shadow: 0 12px 32px color-mix(in srgb, black 30%, transparent);\n' +
+'  padding: 12px;\n' +
+'}\n' +
+'.rt-cal-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 10px; border-bottom: 1px solid var(--rt-border); margin-bottom: 8px; }\n' +
+'.rt-cal-header-date { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }\n' +
+'.rt-cal-header-date i { color: var(--rt-accent); }\n' +
+'.rt-cal-clear { font-size: 11px; border: none; background: transparent; color: var(--rt-red); cursor: pointer; padding: 2px 6px; border-radius: 4px; }\n' +
+'.rt-cal-clear:hover { background: color-mix(in srgb, var(--rt-red) 15%, transparent); }\n' +
+'.rt-cal-nav { display: flex; align-items: center; justify-content: space-between; padding: 2px 0 6px; }\n' +
+'.rt-cal-nav-btn { width: 28px; height: 28px; border: none; background: transparent; color: var(--rt-text-muted); cursor: pointer; border-radius: 4px; font-size: 14px; font-weight: 600; }\n' +
+'.rt-cal-nav-btn:hover { background: var(--rt-border); color: var(--rt-text); }\n' +
+'.rt-cal-month-label { font-size: 13px; font-weight: 600; }\n' +
+'.rt-cal-grid { display: grid; grid-template-columns: 36px repeat(7, 1fr); gap: 1px; }\n' +
+'.rt-cal-day-header { margin-bottom: 2px; }\n' +
+'.rt-cal-cell { display: flex; align-items: center; justify-content: center; height: 30px; font-size: 12px; border: none; background: transparent; color: var(--rt-text); border-radius: 4px; cursor: default; }\n' +
+'.rt-cal-day-name { font-size: 10px; font-weight: 700; color: var(--rt-text-faint); }\n' +
+'.rt-cal-day-name.weekend { color: var(--rt-accent); opacity: 0.6; }\n' +
+'.rt-cal-week-head { font-size: 10px; font-weight: 700; color: var(--rt-text-faint); }\n' +
+'.rt-cal-week-num { font-size: 11px; color: var(--rt-text-faint); cursor: pointer; font-weight: 500; }\n' +
+'.rt-cal-week-num:hover { background: var(--rt-accent-soft); color: var(--rt-accent); }\n' +
+'.rt-cal-week-num.selected { background: var(--rt-accent); color: #fff; }\n' +
+'.rt-cal-day { cursor: pointer; font-weight: 500; }\n' +
+'.rt-cal-day:hover { background: var(--rt-border-strong); }\n' +
+'.rt-cal-day.today { border: 2px solid var(--rt-accent); font-weight: 700; }\n' +
+'.rt-cal-day.selected { background: var(--rt-accent); color: #fff; font-weight: 700; }\n' +
+'.rt-cal-day.weekend { color: var(--rt-text-muted); }\n' +
+'.rt-cal-day.empty { cursor: default; }\n' +
+
 '.rt-toast {\n' +
 '  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(60px);\n' +
 '  padding: 10px 20px; border-radius: var(--rt-radius-sm);\n' +
@@ -1168,7 +1247,7 @@ function buildTaskRow(task, groupBy) {
   var priBadge = '';
   if (task.priority > 0) {
     var priLabels = { 1: '!', 2: '!!', 3: '!!!' };
-    priBadge = '<span class="rt-pri rt-pri-' + task.priority + '">' + priLabels[task.priority] + '</span> ';
+    priBadge = '<span class="rt-pri rt-pri-' + task.priority + '">' + priLabels[task.priority] + '</span>';
   }
 
   var dateClass = 'rt-date-badge';
@@ -1178,14 +1257,14 @@ function buildTaskRow(task, groupBy) {
     else if (task.scheduledDate === today) dateClass += ' today';
   }
 
-  var html = '<div class="rt-task" data-filename="' + esc(task.filename) + '" data-line-index="' + task.lineIndex + '" data-is-checklist="' + task.isChecklist + '">';
+  var html = '<div class="rt-task" data-filename="' + esc(task.filename) + '" data-line-index="' + task.lineIndex + '" data-is-checklist="' + task.isChecklist + '" data-date="' + esc(task.effectiveDate) + '">';
   html += '<span class="' + cbClass + '" data-action="completeTask"><i class="' + cbIcon + '"></i></span>';
   html += '<span class="rt-task-content">' + priBadge + renderInlineRT(task.content) + '</span>';
-  html += '<span class="rt-repeat-badge" title="' + esc(task.repeatExpr) + '">@repeat(' + esc(task.repeatExpr) + ')</span>';
-  html += '<span class="' + dateClass + '">' + esc(dateDisplay) + '</span>';
   if (groupBy !== 'note') {
     html += '<span class="rt-note-badge" data-action="openNote" title="' + esc(task.noteTitle) + '">' + esc(task.noteTitle) + '</span>';
   }
+  html += '<span class="' + dateClass + '" data-action="showSchedule">' + esc(dateDisplay) + '</span>';
+  html += '<span class="rt-repeat-badge" data-action="editRepeat" title="Click to edit">' + esc(task.repeatExpr) + '</span>';
   html += '</div>';
   return html;
 }
@@ -1215,7 +1294,13 @@ function buildDashboardBody(tasks, groupBy) {
   var html = '';
   for (var g = 0; g < groups.length; g++) {
     html += '<div class="rt-group">';
-    html += '<div class="rt-group-header"><span>' + esc(groups[g].label) + '</span><span class="rt-group-count">' + groups[g].tasks.length + '</span></div>';
+    var grpData = '';
+    if (groupBy === 'note' && groups[g].tasks.length > 0) {
+      grpData = ' data-action="openGroupNote" data-filename="' + esc(groups[g].tasks[0].filename) + '"';
+    } else if (groupBy === 'date' && groups[g].label.match(/^\d{4}/)) {
+      grpData = ' data-action="openGroupDate" data-date="' + esc(groups[g].label) + '"';
+    }
+    html += '<div class="rt-group-header"' + grpData + '><span>' + esc(groups[g].label) + '</span><span class="rt-group-count">' + groups[g].tasks.length + '</span></div>';
     for (var t = 0; t < groups[g].tasks.length; t++) {
       html += buildTaskRow(groups[g].tasks[t], groupBy);
     }
@@ -1231,13 +1316,25 @@ async function showRoutineDashboard() {
 
     var tasks = scanRepeatingTasks();
 
-    // Pre-build HTML for both groupings
+    // Filter due tasks (overdue + today)
+    var today = formatDate(new Date());
+    var dueTasks = tasks.filter(function(t) {
+      return t.scheduledDate && t.scheduledDate <= today;
+    });
+
+    // Pre-build HTML for all combinations
     var byNoteHTML = buildDashboardBody(tasks, 'note');
     var byDateHTML = buildDashboardBody(tasks, 'date');
+    var byNoteDueHTML = buildDashboardBody(dueTasks, 'note');
+    var byDateDueHTML = buildDashboardBody(dueTasks, 'date');
 
     var bodyHTML = '<div class="rt-header">';
     bodyHTML += '<span class="rt-title"><i class="fa-solid fa-rotate"></i> Repeating Tasks</span>';
-    bodyHTML += '<span class="rt-count">' + tasks.length + ' tasks</span>';
+    bodyHTML += '<span class="rt-count" id="rtCount">' + tasks.length + ' tasks</span>';
+    bodyHTML += '<div class="rt-filter-btns">';
+    bodyHTML += '<button class="rt-filter-btn active" data-filter="all">All</button>';
+    bodyHTML += '<button class="rt-filter-btn" data-filter="due">Due <span class="rt-due-count">' + dueTasks.length + '</span></button>';
+    bodyHTML += '</div>';
     bodyHTML += '<div class="rt-group-btns">';
     bodyHTML += '<button class="rt-group-btn active" data-group="note">By Note</button>';
     bodyHTML += '<button class="rt-group-btn" data-group="date">By Date</button>';
@@ -1259,7 +1356,8 @@ async function showRoutineDashboard() {
       '</head>\n<body>\n' + bodyHTML + '\n' +
       '  <div class="rt-toast" id="rtToast"></div>\n' +
       '  <script>var receivingPluginID = "asktru.Routine";\n' +
-      'var _prebuiltGroups = { note: ' + JSON.stringify(byNoteHTML) + ', date: ' + JSON.stringify(byDateHTML) + ' };\n' +
+      'var _prebuiltGroups = { "all_note": ' + JSON.stringify(byNoteHTML) + ', "all_date": ' + JSON.stringify(byDateHTML) + ', "due_note": ' + JSON.stringify(byNoteDueHTML) + ', "due_date": ' + JSON.stringify(byDateDueHTML) + ' };\n' +
+      'var _taskCounts = { all: ' + tasks.length + ', due: ' + dueTasks.length + ' };\n' +
       '<\/script>\n' +
       '  <script type="text/javascript" src="routineEvents.js"><\/script>\n' +
       '  <script type="text/javascript" src="../np.Shared/pluginToHTMLCommsBridge.js"><\/script>\n' +
@@ -1350,6 +1448,7 @@ async function onMessageFromHTMLView(actionType, data) {
         break;
 
       case 'openNote':
+      case 'openGroupNote':
         if (msg.filename) {
           await CommandBar.onMainThread();
           var oNote = findNoteByFilename(msg.filename);
@@ -1357,6 +1456,54 @@ async function onMessageFromHTMLView(actionType, data) {
           if (oTitle) {
             NotePlan.openURL('noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent(oTitle) + '&splitView=yes&reuseSplitView=yes');
           }
+        }
+        break;
+
+      case 'openGroupDate':
+        if (msg.date) {
+          await CommandBar.onMainThread();
+          NotePlan.openURL('noteplan://x-callback-url/openNote?noteDate=' + encodeURIComponent(msg.date) + '&splitView=yes&reuseSplitView=yes');
+        }
+        break;
+
+      case 'editRepeat':
+        if (msg.filename && msg.lineIndex !== undefined && msg.newExpr) {
+          var erNote = findNoteByFilename(msg.filename);
+          if (erNote) {
+            var erLine = parseInt(msg.lineIndex);
+            var erParas = erNote.paragraphs;
+            for (var eri = 0; eri < erParas.length; eri++) {
+              if (erParas[eri].lineIndex === erLine) {
+                var erContent = erParas[eri].content || '';
+                erContent = erContent.replace(/@repeat\([^)]+\)/, '@repeat(' + msg.newExpr + ')');
+                erParas[eri].content = erContent;
+                erNote.updateParagraph(erParas[eri]);
+                break;
+              }
+            }
+          }
+          await showRoutineDashboard();
+        }
+        break;
+
+      case 'scheduleTask':
+        if (msg.filename && msg.lineIndex !== undefined && msg.dateStr !== undefined) {
+          var stNote = findNoteByFilename(msg.filename);
+          if (stNote) {
+            var stLine = parseInt(msg.lineIndex);
+            var stParas = stNote.paragraphs;
+            for (var sti = 0; sti < stParas.length; sti++) {
+              if (stParas[sti].lineIndex === stLine) {
+                var stContent = stParas[sti].content || '';
+                stContent = stContent.replace(/\s*>(\d{4}-\d{2}-\d{2}|\d{4}-W\d{2}|today)/g, '').trim();
+                if (msg.dateStr) stContent = stContent + ' >' + msg.dateStr;
+                stParas[sti].content = stContent;
+                stNote.updateParagraph(stParas[sti]);
+                break;
+              }
+            }
+          }
+          await showRoutineDashboard();
         }
         break;
 
