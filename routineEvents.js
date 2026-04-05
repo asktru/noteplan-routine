@@ -25,29 +25,34 @@ function onMessageFromPlugin(type, data) {
 }
 
 function handleTaskCompleted(data) {
-  // Remove the completed task row
+  // Find and replace the completed task row with the new repeat
   var rows = document.querySelectorAll('.rt-task[data-filename="' + data.filename + '"][data-line-index="' + data.lineIndex + '"]');
   rows.forEach(function(row) {
-    var group = row.closest('.rt-group');
-    row.remove();
-    // Update group count or remove empty group
-    if (group) {
-      var remaining = group.querySelectorAll('.rt-task');
-      if (remaining.length === 0) {
-        group.remove();
-      } else {
-        var countEl = group.querySelector('.rt-group-count');
-        if (countEl) countEl.textContent = remaining.length;
+    if (data.newTaskHTML) {
+      // Replace with new task row
+      var temp = document.createElement('div');
+      temp.insertAdjacentHTML('afterbegin', data.newTaskHTML);
+      var newRow = temp.firstChild;
+      if (newRow) {
+        row.parentNode.replaceChild(newRow, row);
+      }
+    } else {
+      // No new task — just remove
+      var group = row.closest('.rt-group');
+      row.remove();
+      if (group) {
+        var remaining = group.querySelectorAll('.rt-task');
+        if (remaining.length === 0) {
+          group.remove();
+        } else {
+          var countEl = group.querySelector('.rt-group-count');
+          if (countEl) countEl.textContent = remaining.length;
+        }
       }
     }
   });
 
-  // If there's a new task (the next repeat), show a toast
-  if (data.newTask) {
-    showToast('Next: ' + (data.newTask.effectiveDate || 'unscheduled'));
-  } else {
-    showToast('Completed');
-  }
+  showToast('Done — next repeat scheduled');
 }
 
 // ============================================
