@@ -1,6 +1,8 @@
 # Routine for NotePlan
 
-A recurring task plugin for [NotePlan](https://noteplan.co) with Todoist-like repeat syntax. Automatically generates the next occurrence of a repeating task when you complete it.
+A recurring task plugin for [NotePlan](https://noteplan.co) with Todoist-like repeat syntax. Automatically generates the next occurrence of a repeating task when you complete it. Includes a sidebar dashboard to view, complete, and manage all your repeating tasks.
+
+![Routine Dashboard](screenshot.png)
 
 ## Repeat Syntax
 
@@ -108,6 +110,22 @@ Run the **Generate Repeats** command from NotePlan's command bar (`/generate rep
 - Indentation is preserved for subtasks
 - For calendar notes, the new task is appended to the **target date's** calendar note
 - For project notes, the new task is inserted **before** the completed task
+
+## Dashboard
+
+The Routine Dashboard sidebar shows all your repeating tasks at a glance:
+
+- **All/Due filter** — toggle between all repeating tasks or only those due today/overdue
+- **Group by Note or Date** — instant switching between views
+- **Complete tasks** — click the checkbox to complete and see the next occurrence appear inline
+- **Edit repeat rules** — click the repeat expression to modify it
+- **Reschedule** — click the date to open a calendar picker (day or week scheduling)
+- **Open notes** — click note titles or group headers to open in split view
+
+## Commands
+
+- **`/generate repeats`** — manually scan current + recent notes for completed repeating tasks
+- **`/Enable auto-repeat for this note`** — add `onEditorWillSave` trigger to frontmatter for automatic repeat generation
 
 ## Installation
 
