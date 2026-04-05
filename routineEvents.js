@@ -4,7 +4,7 @@
 /* global sendMessageToPlugin, _prebuiltGroups, _taskCounts */
 
 var currentGroup = 'note';
-var currentFilter = 'all';
+var currentFilter = 'due';
 
 // ============================================
 // PLUGIN MESSAGE HANDLER

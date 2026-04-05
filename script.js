@@ -1329,17 +1329,17 @@ async function showRoutineDashboard() {
     var byDateDueHTML = buildDashboardBody(dueTasks, 'date');
 
     var bodyHTML = '<div class="rt-header">';
-    bodyHTML += '<span class="rt-title"><i class="fa-solid fa-rotate"></i> Repeating Tasks</span>';
-    bodyHTML += '<span class="rt-count" id="rtCount">' + tasks.length + ' tasks</span>';
+    bodyHTML += '<span class="rt-title">Repeating Tasks</span>';
+    bodyHTML += '<span class="rt-count" id="rtCount">' + dueTasks.length + ' tasks</span>';
     bodyHTML += '<div class="rt-filter-btns">';
-    bodyHTML += '<button class="rt-filter-btn active" data-filter="all">All</button>';
-    bodyHTML += '<button class="rt-filter-btn" data-filter="due">Due <span class="rt-due-count">' + dueTasks.length + '</span></button>';
+    bodyHTML += '<button class="rt-filter-btn" data-filter="all">All</button>';
+    bodyHTML += '<button class="rt-filter-btn active" data-filter="due">Due <span class="rt-due-count">' + dueTasks.length + '</span></button>';
     bodyHTML += '</div>';
     bodyHTML += '<div class="rt-group-btns">';
     bodyHTML += '<button class="rt-group-btn active" data-group="note">By Note</button>';
     bodyHTML += '<button class="rt-group-btn" data-group="date">By Date</button>';
     bodyHTML += '</div></div>';
-    bodyHTML += '<div class="rt-body" id="rtBody">' + byNoteHTML + '</div>';
+    bodyHTML += '<div class="rt-body" id="rtBody">' + byNoteDueHTML + '</div>';
 
     var themeCSS = getThemeCSS();
     var pluginCSS = buildRoutineCSS();
@@ -1449,14 +1449,18 @@ async function onMessageFromHTMLView(actionType, data) {
             }
             if (para) {
               var isChecklist = (para.type === 'checklist');
+              // Capture the clean task title before completion (strip dates, @repeat, @done, priorities)
+              var origContent = (para.content || '');
+              var origTitle = origContent.replace(/@repeat\([^)]+\)/g, '').replace(/@done\([^)]*\)/g, '').replace(/>\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}\s*(AM|PM))?/gi, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/^!{1,3}\s+/, '').replace(/\s{2,}/g, ' ').trim();
+
               para.type = isChecklist ? 'checklistDone' : 'done';
-              para.content = (para.content || '').trimEnd() + ' ' + getDoneTag();
+              para.content = origContent.trimEnd() + ' ' + getDoneTag();
               note.updateParagraph(para);
 
               // Generate next repeat
               processNote(note, true);
 
-              // Find the new repeat task in this note
+              // Find the new repeat task by matching the content signature
               var newTaskHTML = '';
               var freshParas = note.paragraphs;
               for (var npi = 0; npi < freshParas.length; npi++) {
@@ -1465,6 +1469,10 @@ async function onMessageFromHTMLView(actionType, data) {
                 var nRaw = np.rawContent || np.content || '';
                 if (!RE_REPEAT.test(nRaw)) continue;
                 var nContent = np.content || '';
+                // Compare clean task title to find the matching new copy
+                var nTitle = nContent.replace(/@repeat\([^)]+\)/g, '').replace(/@done\([^)]*\)/g, '').replace(/>\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}\s*(AM|PM))?/gi, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/^!{1,3}\s+/, '').replace(/\s{2,}/g, ' ').trim();
+                if (nTitle !== origTitle) continue; // not the same task
+
                 var nRepeatMatch = nRaw.match(RE_REPEAT);
                 var nSchedMatch = nContent.match(/>\s*(\d{4}-\d{2}-\d{2})/);
                 var nWeekMatch = nContent.match(/>\s*(\d{4}-W\d{2})/);
@@ -1486,7 +1494,7 @@ async function onMessageFromHTMLView(actionType, data) {
                   effectiveDate: (nSchedMatch ? nSchedMatch[1] : (nWeekMatch ? nWeekMatch[1] : '')),
                 };
                 newTaskHTML = buildTaskRow(newTaskObj, 'note');
-                break; // take the first open @repeat task found
+                break;
               }
 
               // Send update to HTML
