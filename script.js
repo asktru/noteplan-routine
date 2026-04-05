@@ -1415,6 +1415,22 @@ function findNoteByFilename(filename) {
   return null;
 }
 
+async function sendToHTMLWindow(windowId, type, data) {
+  try {
+    if (typeof HTMLView === 'undefined' || typeof HTMLView.runJavaScript !== 'function') return;
+    var payload = {};
+    var keys = Object.keys(data);
+    for (var k = 0; k < keys.length; k++) payload[keys[k]] = data[keys[k]];
+    payload.NPWindowID = windowId;
+    var stringifiedPayload = JSON.stringify(payload);
+    var doubleStringified = JSON.stringify(stringifiedPayload);
+    var jsCode = '(function() { try { var pd = ' + doubleStringified + '; var p = JSON.parse(pd); window.postMessage({ type: "' + type + '", payload: p }, "*"); } catch(e) { console.error("sendToHTMLWindow error:", e); } })();';
+    await HTMLView.runJavaScript(jsCode, windowId);
+  } catch (err) {
+    console.log('sendToHTMLWindow error: ' + String(err));
+  }
+}
+
 async function onMessageFromHTMLView(actionType, data) {
   try {
     var msg = typeof data === 'string' ? JSON.parse(data) : data;
@@ -1440,8 +1456,51 @@ async function onMessageFromHTMLView(actionType, data) {
               // Generate next repeat
               processNote(note, true);
 
-              // Refresh dashboard
-              await showRoutineDashboard();
+              // Find the new repeat task in this note (scan only this note)
+              var newTask = null;
+              var freshParas = note.paragraphs;
+              for (var npi = 0; npi < freshParas.length; npi++) {
+                var np = freshParas[npi];
+                if (np.type !== 'open' && np.type !== 'checklist') continue;
+                var nContent = np.content || '';
+                var nRaw = np.rawContent || nContent;
+                if (!RE_REPEAT.test(nRaw)) continue;
+                // Check if this looks like the new copy (same repeat expression, nearby)
+                var nRepeatMatch = nRaw.match(RE_REPEAT);
+                var origRepeatMatch = (para.content || '').match(RE_REPEAT);
+                // The completed task had @repeat stripped, so check the original msg context
+                // Just find any open @repeat task that wasn't the one we just completed
+                if (npi !== lineIdx) {
+                  var nSchedMatch = nContent.match(/>\s*(\d{4}-\d{2}-\d{2})/);
+                  var nWeekMatch = nContent.match(/>\s*(\d{4}-W\d{2})/);
+                  var nDisplay = nContent.replace(/@repeat\([^)]+\)/g, '').replace(/>\d{4}-\d{2}-\d{2}/g, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/\s{2,}/g, ' ').trim();
+                  var nPri = 0;
+                  if (nDisplay.startsWith('!!! ')) { nPri = 3; nDisplay = nDisplay.substring(4); }
+                  else if (nDisplay.startsWith('!! ')) { nPri = 2; nDisplay = nDisplay.substring(3); }
+                  else if (nDisplay.startsWith('! ')) { nPri = 1; nDisplay = nDisplay.substring(2); }
+                  newTask = {
+                    content: nDisplay,
+                    repeatExpr: nRepeatMatch ? nRepeatMatch[1] : '',
+                    filename: note.filename,
+                    noteTitle: note.title || note.filename,
+                    lineIndex: np.lineIndex,
+                    isChecklist: (np.type === 'checklist'),
+                    priority: nPri,
+                    scheduledDate: nSchedMatch ? nSchedMatch[1] : null,
+                    scheduledWeek: nWeekMatch ? nWeekMatch[1] : null,
+                    effectiveDate: (nSchedMatch ? nSchedMatch[1] : (nWeekMatch ? nWeekMatch[1] : '')),
+                  };
+                  // We found the most likely new task — break
+                  // (it's the last open @repeat in the note, which is the newly inserted one)
+                }
+              }
+
+              // Send update to HTML: remove completed row, optionally add new one
+              await sendToHTMLWindow(myWinId, 'TASK_COMPLETED', {
+                filename: msg.filename,
+                lineIndex: lineIdx,
+                newTask: newTask,
+              });
             }
           }
         }

@@ -12,12 +12,41 @@ var currentFilter = 'all';
 
 function onMessageFromPlugin(type, data) {
   switch (type) {
+    case 'TASK_COMPLETED':
+      handleTaskCompleted(data);
+      break;
     case 'SHOW_TOAST':
       showToast(data.message);
       break;
     case 'FULL_REFRESH':
       window.location.reload();
       break;
+  }
+}
+
+function handleTaskCompleted(data) {
+  // Remove the completed task row
+  var rows = document.querySelectorAll('.rt-task[data-filename="' + data.filename + '"][data-line-index="' + data.lineIndex + '"]');
+  rows.forEach(function(row) {
+    var group = row.closest('.rt-group');
+    row.remove();
+    // Update group count or remove empty group
+    if (group) {
+      var remaining = group.querySelectorAll('.rt-task');
+      if (remaining.length === 0) {
+        group.remove();
+      } else {
+        var countEl = group.querySelector('.rt-group-count');
+        if (countEl) countEl.textContent = remaining.length;
+      }
+    }
+  });
+
+  // If there's a new task (the next repeat), show a toast
+  if (data.newTask) {
+    showToast('Next: ' + (data.newTask.effectiveDate || 'unscheduled'));
+  } else {
+    showToast('Completed');
   }
 }
 
