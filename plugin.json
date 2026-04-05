@@ -23,7 +23,45 @@
       "description": "Auto-generate repeats when note is saved",
       "jsFunction": "onEditorWillSave",
       "triggersHandled": ["onEditorWillSave"]
+    },
+    {
+      "name": "Enable auto-repeat for this note",
+      "alias": ["auto repeat", "enable routine"],
+      "description": "Add the onEditorWillSave trigger to the current note's frontmatter so completing @repeat tasks auto-generates the next occurrence.",
+      "jsFunction": "enableAutoRepeat"
+    },
+    {
+      "name": "Routine Dashboard",
+      "alias": ["routines", "repeating tasks"],
+      "description": "View all repeating tasks across your notes",
+      "jsFunction": "showRoutineDashboard",
+      "sidebarView": {
+        "windowID": "asktru.Routine.dashboard",
+        "title": "Routine",
+        "icon": "fa-rotate",
+        "iconColor": "#10B981"
+      }
+    },
+    {
+      "name": "onMessageFromHTMLView",
+      "description": "Callback for HTML window messages",
+      "jsFunction": "onMessageFromHTMLView",
+      "hidden": true
     }
+  ],
+  "plugin.dependsOn": [
+    { "id": "np.Shared", "minVersion": "1.0.0" }
+  ],
+  "plugin.requiredFiles": [
+    "routineEvents.js"
+  ],
+  "plugin.requiredSharedFiles": [
+    "fontawesome.css",
+    "regular.min.flat4NP.css",
+    "solid.min.flat4NP.css",
+    "fa-regular-400.woff2",
+    "fa-solid-900.woff2",
+    "pluginToHTMLCommsBridge.js"
   ],
   "plugin.settings": [
     {

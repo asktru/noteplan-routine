@@ -929,5 +929,495 @@ async function onEditorWillSave() {
 // EXPORTS
 // ============================================
 
+// ============================================
+// DASHBOARD — HTML View
+// ============================================
+
+var WINDOW_ID = 'asktru.Routine.dashboard';
+
+function esc(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function npColor(c) {
+  if (!c) return null;
+  if (c.match && c.match(/^#[0-9A-Fa-f]{8}$/)) return '#' + c.slice(3, 9) + c.slice(1, 3);
+  return c;
+}
+
+function isLightTheme() {
+  try {
+    var theme = Editor.currentTheme;
+    if (!theme) return false;
+    if (theme.mode === 'light') return true;
+    if (theme.mode === 'dark') return false;
+  } catch (e) {}
+  return false;
+}
+
+function getThemeCSS() {
+  try {
+    var theme = Editor.currentTheme;
+    if (!theme) return '';
+    var vals = theme.values || {};
+    var editor = vals.editor || {};
+    var styles = [];
+    var bg = npColor(editor.backgroundColor);
+    var altBg = npColor(editor.altBackgroundColor);
+    var text = npColor(editor.textColor);
+    var tint = npColor(editor.tintColor);
+    if (bg) styles.push('--bg-main-color: ' + bg);
+    if (altBg) styles.push('--bg-alt-color: ' + altBg);
+    if (text) styles.push('--fg-main-color: ' + text);
+    if (tint) styles.push('--tint-color: ' + tint);
+    if (styles.length > 0) return ':root { ' + styles.join('; ') + '; }';
+  } catch (e) {}
+  return '';
+}
+
+function scanRepeatingTasks() {
+  var tasks = [];
+  var today = formatDate(new Date());
+  var allNotes = DataStore.projectNotes;
+  var calNotes = DataStore.calendarNotes;
+
+  function processNote(note) {
+    if (!note || !note.paragraphs) return;
+    var fn = note.filename || '';
+    if (fn.indexOf('@Archive') >= 0 || fn.indexOf('@Trash') >= 0 || fn.indexOf('@Templates') >= 0) return;
+    var paras = note.paragraphs;
+    for (var i = 0; i < paras.length; i++) {
+      var p = paras[i];
+      var content = p.content || '';
+      var rawContent = p.rawContent || '';
+      var checkStr = rawContent || content;
+      if (!RE_REPEAT.test(checkStr)) continue;
+      // Only open tasks/checklists
+      var t = p.type;
+      if (t !== 'open' && t !== 'checklist') continue;
+
+      var repeatMatch = checkStr.match(RE_REPEAT);
+      var repeatExpr = repeatMatch ? repeatMatch[1] : '';
+      var desc = parseRepeatExpr(repeatExpr);
+      var isChecklist = (t === 'checklist');
+
+      // Extract scheduled date
+      var schedMatch = content.match(/>\s*(\d{4}-\d{2}-\d{2})/);
+      var schedWeekMatch = content.match(/>\s*(\d{4}-W\d{2})/);
+      var scheduledDate = schedMatch ? schedMatch[1] : null;
+      var scheduledWeek = schedWeekMatch ? schedWeekMatch[1] : null;
+
+      // Clean display content
+      var display = content.replace(/@repeat\([^)]+\)/g, '').replace(/>\d{4}-\d{2}-\d{2}/g, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/\s{2,}/g, ' ').trim();
+
+      // Extract priority
+      var priLevel = 0;
+      if (display.startsWith('!!! ')) { priLevel = 3; display = display.substring(4); }
+      else if (display.startsWith('!! ')) { priLevel = 2; display = display.substring(3); }
+      else if (display.startsWith('! ')) { priLevel = 1; display = display.substring(2); }
+
+      tasks.push({
+        content: display,
+        repeatExpr: repeatExpr,
+        repeatDesc: desc ? (desc.type + (desc.fromCompletion ? ' (from completion)' : '')) : '',
+        filename: fn,
+        noteTitle: note.title || fn.replace(/\.md$/, ''),
+        lineIndex: p.lineIndex,
+        isChecklist: isChecklist,
+        priority: priLevel,
+        scheduledDate: scheduledDate,
+        scheduledWeek: scheduledWeek,
+        effectiveDate: scheduledDate || scheduledWeek || '',
+      });
+    }
+  }
+
+  for (var i = 0; i < allNotes.length; i++) processNote(allNotes[i]);
+  for (var j = 0; j < calNotes.length; j++) processNote(calNotes[j]);
+
+  // Sort by effective date
+  tasks.sort(function(a, b) {
+    var da = a.effectiveDate || '9999';
+    var db = b.effectiveDate || '9999';
+    if (da !== db) return da < db ? -1 : 1;
+    return a.content.localeCompare(b.content);
+  });
+
+  return tasks;
+}
+
+function buildRoutineCSS() {
+  return '\n' +
+':root, [data-theme="dark"] {\n' +
+'  --rt-bg: var(--bg-main-color, #1a1a2e);\n' +
+'  --rt-bg-card: var(--bg-alt-color, #16213e);\n' +
+'  --rt-bg-elevated: color-mix(in srgb, var(--rt-bg-card) 85%, white 15%);\n' +
+'  --rt-text: var(--fg-main-color, #e0e0e0);\n' +
+'  --rt-text-muted: color-mix(in srgb, var(--rt-text) 55%, transparent);\n' +
+'  --rt-text-faint: color-mix(in srgb, var(--rt-text) 35%, transparent);\n' +
+'  --rt-accent: var(--tint-color, #10B981);\n' +
+'  --rt-accent-soft: color-mix(in srgb, var(--rt-accent) 15%, transparent);\n' +
+'  --rt-border: color-mix(in srgb, var(--rt-text) 10%, transparent);\n' +
+'  --rt-border-strong: color-mix(in srgb, var(--rt-text) 18%, transparent);\n' +
+'  --rt-green: #10B981; --rt-red: #EF4444; --rt-orange: #F97316; --rt-blue: #3B82F6;\n' +
+'  --rt-radius: 8px; --rt-radius-sm: 5px;\n' +
+'}\n' +
+'[data-theme="light"] {\n' +
+'  --rt-bg-elevated: color-mix(in srgb, var(--rt-bg-card) 92%, black 8%);\n' +
+'  --rt-text-muted: color-mix(in srgb, var(--rt-text) 60%, transparent);\n' +
+'  --rt-text-faint: color-mix(in srgb, var(--rt-text) 40%, transparent);\n' +
+'}\n' +
+'* { box-sizing: border-box; margin: 0; padding: 0; }\n' +
+'body {\n' +
+'  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;\n' +
+'  background: var(--rt-bg); color: var(--rt-text);\n' +
+'  font-size: 13px; line-height: 1.5; overflow: auto; height: 100vh;\n' +
+'}\n' +
+'.rt-header {\n' +
+'  padding: 12px 16px; border-bottom: 1px solid var(--rt-border);\n' +
+'  display: flex; align-items: center; gap: 12px;\n' +
+'}\n' +
+'.rt-title { font-size: 14px; font-weight: 700; }\n' +
+'.rt-count { font-size: 12px; color: var(--rt-text-muted); }\n' +
+'.rt-group-btns { margin-left: auto; display: flex; gap: 4px; }\n' +
+'.rt-group-btn {\n' +
+'  padding: 3px 10px; font-size: 11px; font-weight: 500;\n' +
+'  border-radius: 100px; border: none; background: transparent;\n' +
+'  color: var(--rt-text-muted); cursor: pointer;\n' +
+'}\n' +
+'.rt-group-btn:hover { background: var(--rt-border); color: var(--rt-text); }\n' +
+'.rt-group-btn.active { background: var(--rt-accent-soft); color: var(--rt-accent); font-weight: 600; }\n' +
+'.rt-body { padding: 12px 16px; }\n' +
+'.rt-group { margin-bottom: 16px; }\n' +
+'.rt-group-header {\n' +
+'  display: flex; align-items: center; gap: 8px;\n' +
+'  padding: 4px 0; margin-bottom: 6px;\n' +
+'  border-bottom: 1px solid var(--rt-border);\n' +
+'  font-size: 12px; font-weight: 700; color: var(--rt-text-muted);\n' +
+'}\n' +
+'.rt-group-count {\n' +
+'  font-size: 10px; font-weight: 700; padding: 0 5px; height: 18px;\n' +
+'  display: inline-flex; align-items: center; border-radius: 100px;\n' +
+'  background: var(--rt-border); color: var(--rt-text-muted);\n' +
+'}\n' +
+'.rt-task {\n' +
+'  display: grid; grid-template-columns: 24px 1fr auto auto auto;\n' +
+'  gap: 8px; align-items: center;\n' +
+'  padding: 6px 4px; border-radius: var(--rt-radius-sm);\n' +
+'  transition: background 0.1s;\n' +
+'}\n' +
+'.rt-task:hover { background: var(--rt-border); }\n' +
+'.rt-cb { font-size: 14px; color: var(--rt-text-faint); cursor: pointer; text-align: center; }\n' +
+'.rt-cb:hover { color: var(--rt-green); }\n' +
+'.rt-cb-square { font-size: 13px; }\n' +
+'.rt-task-content { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n' +
+'.rt-task-content .rt-tag { color: var(--rt-orange); font-weight: 600; }\n' +
+'.rt-task-content .rt-mention { color: var(--rt-orange); font-weight: 600; }\n' +
+'.rt-repeat-badge {\n' +
+'  font-size: 10px; padding: 2px 6px; border-radius: 3px;\n' +
+'  background: var(--rt-accent-soft); color: var(--rt-accent);\n' +
+'  white-space: nowrap; cursor: default;\n' +
+'}\n' +
+'.rt-date-badge {\n' +
+'  font-size: 10px; padding: 2px 6px; border-radius: 3px;\n' +
+'  background: var(--rt-border); color: var(--rt-text-muted);\n' +
+'  white-space: nowrap;\n' +
+'}\n' +
+'.rt-date-badge.overdue { background: color-mix(in srgb, var(--rt-red) 15%, transparent); color: var(--rt-red); }\n' +
+'.rt-date-badge.today { background: color-mix(in srgb, var(--rt-orange) 15%, transparent); color: var(--rt-orange); }\n' +
+'.rt-note-badge {\n' +
+'  font-size: 10px; padding: 2px 6px; border-radius: 3px;\n' +
+'  background: var(--rt-border); color: var(--rt-text-faint);\n' +
+'  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;\n' +
+'  cursor: pointer;\n' +
+'}\n' +
+'.rt-note-badge:hover { background: var(--rt-accent-soft); color: var(--rt-accent); }\n' +
+'.rt-pri {\n' +
+'  font-size: 9px; font-weight: 800; padding: 0 4px; height: 16px;\n' +
+'  display: inline-flex; align-items: center; border-radius: 3px;\n' +
+'}\n' +
+'.rt-pri-1 { background: rgba(255,85,85,0.27); color: #FFDBBE; }\n' +
+'.rt-pri-2 { background: rgba(255,85,85,0.47); color: #FFCCCC; }\n' +
+'.rt-pri-3 { background: rgba(255,85,85,0.67); color: #FFB5B5; }\n' +
+'.rt-empty {\n' +
+'  text-align: center; padding: 40px; color: var(--rt-text-muted);\n' +
+'}\n' +
+'.rt-toast {\n' +
+'  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(60px);\n' +
+'  padding: 10px 20px; border-radius: var(--rt-radius-sm);\n' +
+'  background: var(--rt-bg-elevated); color: var(--rt-text);\n' +
+'  border: 1px solid var(--rt-border); font-size: 13px;\n' +
+'  opacity: 0; transition: all 0.3s; z-index: 200; pointer-events: none;\n' +
+'}\n' +
+'.rt-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }\n';
+}
+
+function renderInlineRT(str) {
+  if (!str) return '';
+  var s = esc(str);
+  s = s.replace(/(^|[\s(])#([\w][\w/-]*)/g, '$1<span class="rt-tag">#$2</span>');
+  s = s.replace(/(^|[\s(])@([\w][\w/-]*)/g, '$1<span class="rt-mention">@$2</span>');
+  return s;
+}
+
+function buildTaskRow(task, groupBy) {
+  var today = formatDate(new Date());
+  var cbClass = task.isChecklist ? 'rt-cb rt-cb-square' : 'rt-cb';
+  var cbIcon = task.isChecklist ? 'fa-regular fa-square' : 'fa-regular fa-circle';
+
+  var priBadge = '';
+  if (task.priority > 0) {
+    var priLabels = { 1: '!', 2: '!!', 3: '!!!' };
+    priBadge = '<span class="rt-pri rt-pri-' + task.priority + '">' + priLabels[task.priority] + '</span> ';
+  }
+
+  var dateClass = 'rt-date-badge';
+  var dateDisplay = task.effectiveDate || 'No date';
+  if (task.scheduledDate) {
+    if (task.scheduledDate < today) dateClass += ' overdue';
+    else if (task.scheduledDate === today) dateClass += ' today';
+  }
+
+  var html = '<div class="rt-task" data-filename="' + esc(task.filename) + '" data-line-index="' + task.lineIndex + '" data-is-checklist="' + task.isChecklist + '">';
+  html += '<span class="' + cbClass + '" data-action="completeTask"><i class="' + cbIcon + '"></i></span>';
+  html += '<span class="rt-task-content">' + priBadge + renderInlineRT(task.content) + '</span>';
+  html += '<span class="rt-repeat-badge" title="' + esc(task.repeatExpr) + '">@repeat(' + esc(task.repeatExpr) + ')</span>';
+  html += '<span class="' + dateClass + '">' + esc(dateDisplay) + '</span>';
+  if (groupBy !== 'note') {
+    html += '<span class="rt-note-badge" data-action="openNote" title="' + esc(task.noteTitle) + '">' + esc(task.noteTitle) + '</span>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function groupRoutineTasks(tasks, groupBy) {
+  var groups = {};
+  for (var i = 0; i < tasks.length; i++) {
+    var t = tasks[i];
+    var key = groupBy === 'note' ? t.noteTitle : (t.effectiveDate || 'No date');
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(t);
+  }
+  var result = [];
+  var keys = Object.keys(groups);
+  keys.sort();
+  for (var j = 0; j < keys.length; j++) {
+    result.push({ label: keys[j], tasks: groups[keys[j]] });
+  }
+  return result;
+}
+
+function buildDashboardBody(tasks, groupBy) {
+  if (tasks.length === 0) {
+    return '<div class="rt-empty"><i class="fa-solid fa-rotate" style="font-size:36px;color:var(--rt-text-faint);margin-bottom:12px;display:block"></i>No repeating tasks found</div>';
+  }
+  var groups = groupRoutineTasks(tasks, groupBy);
+  var html = '';
+  for (var g = 0; g < groups.length; g++) {
+    html += '<div class="rt-group">';
+    html += '<div class="rt-group-header"><span>' + esc(groups[g].label) + '</span><span class="rt-group-count">' + groups[g].tasks.length + '</span></div>';
+    for (var t = 0; t < groups[g].tasks.length; t++) {
+      html += buildTaskRow(groups[g].tasks[t], groupBy);
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+async function showRoutineDashboard() {
+  try {
+    CommandBar.showLoading(true, 'Scanning repeating tasks...');
+    await CommandBar.onAsyncThread();
+
+    var tasks = scanRepeatingTasks();
+
+    // Pre-build HTML for both groupings
+    var byNoteHTML = buildDashboardBody(tasks, 'note');
+    var byDateHTML = buildDashboardBody(tasks, 'date');
+
+    var bodyHTML = '<div class="rt-header">';
+    bodyHTML += '<span class="rt-title"><i class="fa-solid fa-rotate"></i> Repeating Tasks</span>';
+    bodyHTML += '<span class="rt-count">' + tasks.length + ' tasks</span>';
+    bodyHTML += '<div class="rt-group-btns">';
+    bodyHTML += '<button class="rt-group-btn active" data-group="note">By Note</button>';
+    bodyHTML += '<button class="rt-group-btn" data-group="date">By Date</button>';
+    bodyHTML += '</div></div>';
+    bodyHTML += '<div class="rt-body" id="rtBody">' + byNoteHTML + '</div>';
+
+    var themeCSS = getThemeCSS();
+    var pluginCSS = buildRoutineCSS();
+    var themeAttr = isLightTheme() ? 'light' : 'dark';
+    var faLinks = '\n    <link href="../np.Shared/fontawesome.css" rel="stylesheet">\n' +
+      '    <link href="../np.Shared/regular.min.flat4NP.css" rel="stylesheet">\n' +
+      '    <link href="../np.Shared/solid.min.flat4NP.css" rel="stylesheet">\n';
+
+    var fullHTML = '<!DOCTYPE html>\n<html data-theme="' + themeAttr + '">\n<head>\n' +
+      '  <meta charset="utf-8">\n' +
+      '  <meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+      '  <title>Routine</title>\n' + faLinks +
+      '  <style>' + themeCSS + '\n' + pluginCSS + '</style>\n' +
+      '</head>\n<body>\n' + bodyHTML + '\n' +
+      '  <div class="rt-toast" id="rtToast"></div>\n' +
+      '  <script>var receivingPluginID = "asktru.Routine";\n' +
+      'var _prebuiltGroups = { note: ' + JSON.stringify(byNoteHTML) + ', date: ' + JSON.stringify(byDateHTML) + ' };\n' +
+      '<\/script>\n' +
+      '  <script type="text/javascript" src="routineEvents.js"><\/script>\n' +
+      '  <script type="text/javascript" src="../np.Shared/pluginToHTMLCommsBridge.js"><\/script>\n' +
+      '</body>\n</html>';
+
+    await CommandBar.onMainThread();
+    CommandBar.showLoading(false);
+
+    var winOptions = {
+      customId: WINDOW_ID,
+      savedFilename: '../../asktru.Routine/routine.html',
+      shouldFocus: true,
+      reuseUsersWindowRect: true,
+      headerBGColor: 'transparent',
+      autoTopPadding: true,
+      showReloadButton: true,
+      reloadPluginID: PLUGIN_ID,
+      reloadCommandName: 'Routine Dashboard',
+      icon: 'fa-rotate',
+      iconColor: '#10B981',
+    };
+
+    var result = await HTMLView.showInMainWindow(fullHTML, 'Routine', winOptions);
+    if (!result || !result.success) {
+      await HTMLView.showWindowWithOptions(fullHTML, 'Routine', winOptions);
+    }
+  } catch (err) {
+    CommandBar.showLoading(false);
+    console.log('Routine dashboard error: ' + String(err));
+  }
+}
+
+function getDoneTag() {
+  var now = new Date();
+  var y = now.getFullYear();
+  var mo = String(now.getMonth() + 1).padStart(2, '0');
+  var d = String(now.getDate()).padStart(2, '0');
+  var h = now.getHours();
+  var mi = String(now.getMinutes()).padStart(2, '0');
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  var h12 = h % 12;
+  if (h12 === 0) h12 = 12;
+  return '@done(' + y + '-' + mo + '-' + d + ' ' + String(h12).padStart(2, '0') + ':' + mi + ' ' + ampm + ')';
+}
+
+function findNoteByFilename(filename) {
+  var notes = DataStore.projectNotes;
+  for (var i = 0; i < notes.length; i++) {
+    if (notes[i].filename === filename) return notes[i];
+  }
+  var cal = DataStore.calendarNotes;
+  for (var j = 0; j < cal.length; j++) {
+    if (cal[j].filename === filename) return cal[j];
+  }
+  return null;
+}
+
+async function onMessageFromHTMLView(actionType, data) {
+  try {
+    var msg = typeof data === 'string' ? JSON.parse(data) : data;
+    var myWinId = 'asktru.Routine.dashboard';
+
+    switch (actionType) {
+      case 'completeTask':
+        if (msg.filename && msg.lineIndex !== undefined) {
+          var note = findNoteByFilename(msg.filename);
+          if (note) {
+            var lineIdx = parseInt(msg.lineIndex);
+            var paras = note.paragraphs;
+            var para = null;
+            for (var pi = 0; pi < paras.length; pi++) {
+              if (paras[pi].lineIndex === lineIdx) { para = paras[pi]; break; }
+            }
+            if (para) {
+              var isChecklist = (para.type === 'checklist');
+              para.type = isChecklist ? 'checklistDone' : 'done';
+              para.content = (para.content || '').trimEnd() + ' ' + getDoneTag();
+              note.updateParagraph(para);
+
+              // Generate next repeat
+              processNote(note, true);
+
+              // Refresh dashboard
+              await showRoutineDashboard();
+            }
+          }
+        }
+        break;
+
+      case 'openNote':
+        if (msg.filename) {
+          await CommandBar.onMainThread();
+          var oNote = findNoteByFilename(msg.filename);
+          var oTitle = oNote ? (oNote.title || '') : '';
+          if (oTitle) {
+            NotePlan.openURL('noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent(oTitle) + '&splitView=yes&reuseSplitView=yes');
+          }
+        }
+        break;
+
+      default:
+        console.log('Routine: unknown action: ' + actionType);
+    }
+  } catch (err) {
+    console.log('Routine onMessage error: ' + String(err));
+  }
+}
+
+// ============================================
+// SLASH COMMAND: Enable auto-repeat
+// ============================================
+
+async function enableAutoRepeat() {
+  var note = Editor.note;
+  if (!note) {
+    await CommandBar.prompt('No note open', 'Open a note first.');
+    return;
+  }
+  var content = note.content || '';
+  var lines = content.split('\n');
+  var triggerLine = 'triggers: onEditorWillSave => asktru.Routine.onEditorWillSave';
+
+  // Check if already present
+  if (content.indexOf(triggerLine) >= 0) {
+    await CommandBar.prompt('Already enabled', 'This note already has the Routine auto-repeat trigger.');
+    return;
+  }
+
+  if (lines[0].trim() === '---') {
+    // Has frontmatter — find end and insert before closing ---
+    var endIdx = -1;
+    for (var i = 1; i < lines.length; i++) {
+      if (lines[i].trim() === '---') { endIdx = i; break; }
+    }
+    if (endIdx > 0) {
+      // Check if there's already a triggers: line
+      var existingTrigger = -1;
+      for (var j = 1; j < endIdx; j++) {
+        if (lines[j].match(/^triggers\s*:/)) { existingTrigger = j; break; }
+      }
+      if (existingTrigger >= 0) {
+        // Append to existing triggers line
+        lines[existingTrigger] = lines[existingTrigger].trimEnd() + ', onEditorWillSave => asktru.Routine.onEditorWillSave';
+      } else {
+        lines.splice(endIdx, 0, triggerLine);
+      }
+    }
+  } else {
+    // No frontmatter — create one
+    lines.unshift('---', triggerLine, '---');
+  }
+
+  note.content = lines.join('\n');
+  await CommandBar.prompt('Enabled', 'Auto-repeat trigger added. Completing @repeat tasks in this note will now auto-generate the next occurrence.');
+}
+
 globalThis.generateRepeats = generateRepeats;
 globalThis.onEditorWillSave = onEditorWillSave;
+globalThis.enableAutoRepeat = enableAutoRepeat;
+globalThis.showRoutineDashboard = showRoutineDashboard;
+globalThis.onMessageFromHTMLView = onMessageFromHTMLView;
