@@ -1457,52 +1457,91 @@ async function onMessageFromHTMLView(actionType, data) {
             }
             if (para) {
               var isChecklist = (para.type === 'checklist');
-              // Capture the clean task title before completion (strip dates, @repeat, @done, priorities)
               var origContent = (para.content || '');
-              var origTitle = origContent.replace(/@repeat\([^)]+\)/g, '').replace(/@done\([^)]*\)/g, '').replace(/>\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}\s*(AM|PM))?/gi, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/^!{1,3}\s+/, '').replace(/\s{2,}/g, ' ').trim();
 
+              // Extract repeat expression BEFORE stripping it
+              var repeatMatch = origContent.match(RE_REPEAT);
+              var repeatExpr = repeatMatch ? repeatMatch[1] : '';
+
+              // Calculate next occurrence inline (prevents double-processing with onEditorWillSave)
+              var newTaskContent = '';
+              var nextSchedStr = '';
+              if (repeatExpr) {
+                var desc = parseRepeatExpr(repeatExpr);
+                if (desc) {
+                  var completionDate = new Date();
+                  var schedInfo = getTaskScheduleInfo(origContent, note);
+                  var dueDate = schedInfo ? schedInfo.date : null;
+                  var granularity = schedInfo ? schedInfo.granularity : 'day';
+                  if (desc.type === 'interval') {
+                    if (desc.unit === 'week' && granularity === 'day') granularity = 'week';
+                    else if (desc.unit === 'quarter' && (granularity === 'day' || granularity === 'month')) granularity = 'quarter';
+                    else if (desc.unit === 'year' && granularity !== 'year') granularity = 'year';
+                    else if (desc.unit === 'month' && granularity === 'day') granularity = 'month';
+                  }
+                  var baseDate = desc.fromCompletion ? completionDate : dueDate;
+                  var nextDate = calcNextDate(desc, baseDate, completionDate);
+                  if (nextDate) {
+                    nextSchedStr = formatScheduleStr(nextDate, granularity);
+                    // Build new task content: keep @repeat, strip @done and old dates, add new date
+                    newTaskContent = origContent;
+                    newTaskContent = newTaskContent.replace(RE_DONE, '').trim();
+                    newTaskContent = newTaskContent.replace(RE_SCHED_ANY, '').trim();
+                    newTaskContent = newTaskContent.replace(/\s{2,}/g, ' ').trim();
+                    newTaskContent = newTaskContent + ' >' + nextSchedStr;
+                  }
+                }
+              }
+
+              // Insert the new repeat task BEFORE marking done (so para reference stays valid)
+              if (newTaskContent) {
+                note.insertParagraphBeforeParagraph(newTaskContent, para, isChecklist ? 'checklist' : 'open');
+              }
+
+              // Mark the original task as done, strip @repeat to prevent onEditorWillSave re-processing
+              var completedContent = origContent.replace(RE_REPEAT, '').replace(/\s{2,}/g, ' ').trimEnd() + ' ' + getDoneTag();
               para.type = isChecklist ? 'checklistDone' : 'done';
-              para.content = origContent.trimEnd() + ' ' + getDoneTag();
+              para.content = completedContent;
               note.updateParagraph(para);
 
-              // Generate next repeat
-              processNote(note, true);
-
-              // Find the new repeat task by matching the content signature
+              // Build HTML for the new task row in the dashboard
               var newTaskHTML = '';
-              var freshParas = note.paragraphs;
-              for (var npi = 0; npi < freshParas.length; npi++) {
-                var np = freshParas[npi];
-                if (np.type !== 'open' && np.type !== 'checklist') continue;
-                var nRaw = np.rawContent || np.content || '';
-                if (!RE_REPEAT.test(nRaw)) continue;
-                var nContent = np.content || '';
-                // Compare clean task title to find the matching new copy
-                var nTitle = nContent.replace(/@repeat\([^)]+\)/g, '').replace(/@done\([^)]*\)/g, '').replace(/>\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}\s*(AM|PM))?/gi, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/^!{1,3}\s+/, '').replace(/\s{2,}/g, ' ').trim();
-                if (nTitle !== origTitle) continue; // not the same task
+              if (newTaskContent) {
+                // Read fresh paragraphs to find the inserted task's lineIndex
+                var freshParas = note.paragraphs;
+                var origTitle = origContent.replace(/@repeat\([^)]+\)/g, '').replace(/@done\([^)]*\)/g, '').replace(/>\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}\s*(AM|PM))?/gi, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/^!{1,3}\s+/, '').replace(/\s{2,}/g, ' ').trim();
+                for (var npi = 0; npi < freshParas.length; npi++) {
+                  var np = freshParas[npi];
+                  if (np.type !== 'open' && np.type !== 'checklist') continue;
+                  var nRaw = np.rawContent || np.content || '';
+                  if (!RE_REPEAT.test(nRaw)) continue;
+                  var nContent = np.content || '';
+                  var nTitle = nContent.replace(/@repeat\([^)]+\)/g, '').replace(/@done\([^)]*\)/g, '').replace(/>\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}\s*(AM|PM))?/gi, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/^!{1,3}\s+/, '').replace(/\s{2,}/g, ' ').trim();
+                  if (nTitle !== origTitle) continue;
 
-                var nRepeatMatch = nRaw.match(RE_REPEAT);
-                var nSchedMatch = nContent.match(/>\s*(\d{4}-\d{2}-\d{2})/);
-                var nWeekMatch = nContent.match(/>\s*(\d{4}-W\d{2})/);
-                var nDisplay = nContent.replace(/@repeat\([^)]+\)/g, '').replace(/>\d{4}-\d{2}-\d{2}/g, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/\s{2,}/g, ' ').trim();
-                var nPri = 0;
-                if (nDisplay.startsWith('!!! ')) { nPri = 3; nDisplay = nDisplay.substring(4); }
-                else if (nDisplay.startsWith('!! ')) { nPri = 2; nDisplay = nDisplay.substring(3); }
-                else if (nDisplay.startsWith('! ')) { nPri = 1; nDisplay = nDisplay.substring(2); }
-                var newTaskObj = {
-                  content: nDisplay,
-                  repeatExpr: nRepeatMatch ? nRepeatMatch[1] : '',
-                  filename: note.filename || '',
-                  noteTitle: note.title || note.filename || '',
-                  lineIndex: np.lineIndex,
-                  isChecklist: (np.type === 'checklist'),
-                  priority: nPri,
-                  scheduledDate: nSchedMatch ? nSchedMatch[1] : null,
-                  scheduledWeek: nWeekMatch ? nWeekMatch[1] : null,
-                  effectiveDate: (nSchedMatch ? nSchedMatch[1] : (nWeekMatch ? nWeekMatch[1] : '')),
-                };
-                newTaskHTML = buildTaskRow(newTaskObj, 'note');
-                break;
+                  var nRepeatMatch = nRaw.match(RE_REPEAT);
+                  var nSchedMatch = nContent.match(/>\s*(\d{4}-\d{2}-\d{2})/);
+                  var nWeekMatch = nContent.match(/>\s*(\d{4}-W\d{2})/);
+                  var nDisplay = nContent.replace(/@repeat\([^)]+\)/g, '').replace(/>\d{4}-\d{2}-\d{2}/g, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/\s{2,}/g, ' ').trim();
+                  var nPri = 0;
+                  if (nDisplay.startsWith('!!! ')) { nPri = 3; nDisplay = nDisplay.substring(4); }
+                  else if (nDisplay.startsWith('!! ')) { nPri = 2; nDisplay = nDisplay.substring(3); }
+                  else if (nDisplay.startsWith('! ')) { nPri = 1; nDisplay = nDisplay.substring(2); }
+                  var newTaskObj = {
+                    content: nDisplay,
+                    repeatExpr: nRepeatMatch ? nRepeatMatch[1] : '',
+                    filename: note.filename || '',
+                    noteTitle: note.title || note.filename || '',
+                    lineIndex: np.lineIndex,
+                    isChecklist: (np.type === 'checklist'),
+                    priority: nPri,
+                    scheduledDate: nSchedMatch ? nSchedMatch[1] : null,
+                    scheduledWeek: nWeekMatch ? nWeekMatch[1] : null,
+                    effectiveDate: (nSchedMatch ? nSchedMatch[1] : (nWeekMatch ? nWeekMatch[1] : '')),
+                  };
+                  newTaskHTML = buildTaskRow(newTaskObj, 'note');
+                  break;
+                }
               }
 
               // Send update to HTML
