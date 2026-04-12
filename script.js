@@ -9,6 +9,13 @@
 
 var PLUGIN_ID = 'asktru.Routine';
 
+// Guard flag: set while onMessageFromHTMLView is modifying a note,
+// so onEditorWillSave skips processing (prevents race condition).
+// Uses globalThis so it survives across plugin JS context reloads.
+if (typeof globalThis._routinePluginUpdating === 'undefined') {
+  globalThis._routinePluginUpdating = false;
+}
+
 function getSettings() {
   return {
     deleteCompletedRepeat: DataStore.settings.deleteCompletedRepeat || false,
@@ -901,6 +908,13 @@ async function generateRepeats(noteArg) {
  */
 async function onEditorWillSave() {
   try {
+    // Skip if the plugin itself is modifying a note from the HTML view.
+    // This prevents the Editor from overwriting paragraph-API changes
+    // with its stale buffer (race condition when note is in split view).
+    if (globalThis._routinePluginUpdating) {
+      info('onEditorWillSave skipped — plugin is updating');
+      return;
+    }
     info('onEditorWillSave triggered');
     var config = getSettings();
 
@@ -1440,6 +1454,8 @@ async function sendToHTMLWindow(windowId, type, data) {
 }
 
 async function onMessageFromHTMLView(actionType, data) {
+  // Set guard flag to prevent onEditorWillSave from racing with our changes
+  globalThis._routinePluginUpdating = true;
   try {
     var msg = typeof data === 'string' ? JSON.parse(data) : data;
     var myWinId = 'asktru.Routine.dashboard';
@@ -1580,14 +1596,24 @@ async function onMessageFromHTMLView(actionType, data) {
           var erNote = findNoteByFilename(msg.filename);
           if (erNote) {
             var erLine = parseInt(msg.lineIndex);
-            var erParas = erNote.paragraphs;
-            for (var eri = 0; eri < erParas.length; eri++) {
-              if (erParas[eri].lineIndex === erLine) {
-                var erContent = erParas[eri].content || '';
-                erContent = erContent.replace(/@repeat\([^)]+\)/, '@repeat(' + msg.newExpr + ')');
-                erParas[eri].content = erContent;
-                erNote.updateParagraph(erParas[eri]);
-                break;
+            var erInEditor = Editor.note && Editor.note.filename === erNote.filename;
+            if (erInEditor) {
+              var erEdContent = Editor.content || '';
+              var erEdLines = erEdContent.split('\n');
+              if (erLine >= 0 && erLine < erEdLines.length) {
+                erEdLines[erLine] = erEdLines[erLine].replace(/@repeat\([^)]+\)/, '@repeat(' + msg.newExpr + ')');
+                Editor.content = erEdLines.join('\n');
+              }
+            } else {
+              var erParas = erNote.paragraphs;
+              for (var eri = 0; eri < erParas.length; eri++) {
+                if (erParas[eri].lineIndex === erLine) {
+                  var erContent = erParas[eri].content || '';
+                  erContent = erContent.replace(/@repeat\([^)]+\)/, '@repeat(' + msg.newExpr + ')');
+                  erParas[eri].content = erContent;
+                  erNote.updateParagraph(erParas[eri]);
+                  break;
+                }
               }
             }
           }
@@ -1600,15 +1626,29 @@ async function onMessageFromHTMLView(actionType, data) {
           var stNote = findNoteByFilename(msg.filename);
           if (stNote) {
             var stLine = parseInt(msg.lineIndex);
-            var stParas = stNote.paragraphs;
-            for (var sti = 0; sti < stParas.length; sti++) {
-              if (stParas[sti].lineIndex === stLine) {
-                var stContent = stParas[sti].content || '';
-                stContent = stContent.replace(/\s*>(\d{4}-\d{2}-\d{2}|\d{4}-W\d{2}|today)/g, '').trim();
-                if (msg.dateStr) stContent = stContent + ' >' + msg.dateStr;
-                stParas[sti].content = stContent;
-                stNote.updateParagraph(stParas[sti]);
-                break;
+            var noteInEditor = Editor.note && Editor.note.filename === stNote.filename;
+            if (noteInEditor) {
+              // Modify Editor.content directly to avoid race with onEditorWillSave
+              var ecContent = Editor.content || '';
+              var ecLines = ecContent.split('\n');
+              if (stLine >= 0 && stLine < ecLines.length) {
+                var ecOrig = ecLines[stLine];
+                var ecNew = ecOrig.replace(/\s*>(\d{4}-\d{2}-\d{2}|\d{4}-W\d{2}|today)/g, '').trimEnd();
+                if (msg.dateStr) ecNew = ecNew + ' >' + msg.dateStr;
+                ecLines[stLine] = ecNew;
+                Editor.content = ecLines.join('\n');
+              }
+            } else {
+              var stParas = stNote.paragraphs;
+              for (var sti = 0; sti < stParas.length; sti++) {
+                if (stParas[sti].lineIndex === stLine) {
+                  var stContent = stParas[sti].content || '';
+                  stContent = stContent.replace(/\s*>(\d{4}-\d{2}-\d{2}|\d{4}-W\d{2}|today)/g, '').trim();
+                  if (msg.dateStr) stContent = stContent + ' >' + msg.dateStr;
+                  stParas[sti].content = stContent;
+                  stNote.updateParagraph(stParas[sti]);
+                  break;
+                }
               }
             }
           }
@@ -1621,6 +1661,8 @@ async function onMessageFromHTMLView(actionType, data) {
     }
   } catch (err) {
     console.log('Routine onMessage error: ' + String(err));
+  } finally {
+    globalThis._routinePluginUpdating = false;
   }
 }
 
