@@ -12,8 +12,8 @@ var currentFilter = 'due';
 
 function onMessageFromPlugin(type, data) {
   switch (type) {
-    case 'TASK_COMPLETED':
-      handleTaskCompleted(data);
+    case 'DASHBOARD_UPDATE':
+      handleDashboardUpdate(data);
       break;
     case 'SHOW_TOAST':
       showToast(data.message);
@@ -24,35 +24,16 @@ function onMessageFromPlugin(type, data) {
   }
 }
 
-function handleTaskCompleted(data) {
-  // Find and replace the completed task row with the new repeat
-  var rows = document.querySelectorAll('.rt-task[data-filename="' + data.filename + '"][data-line-index="' + data.lineIndex + '"]');
-  rows.forEach(function(row) {
-    if (data.newTaskHTML) {
-      // Replace with new task row
-      var temp = document.createElement('div');
-      temp.insertAdjacentHTML('afterbegin', data.newTaskHTML);
-      var newRow = temp.firstChild;
-      if (newRow) {
-        row.parentNode.replaceChild(newRow, row);
-      }
-    } else {
-      // No new task — just remove
-      var group = row.closest('.rt-group');
-      row.remove();
-      if (group) {
-        var remaining = group.querySelectorAll('.rt-task');
-        if (remaining.length === 0) {
-          group.remove();
-        } else {
-          var countEl = group.querySelector('.rt-group-count');
-          if (countEl) countEl.textContent = remaining.length;
-        }
-      }
-    }
-  });
-
-  showToast('Done — next repeat scheduled');
+// Replace the cached groups + counts with fresh data from the plugin, then
+// re-render the body using the current filter/group selection. Keeps the
+// user's view state (filter, grouping, and which tabs are active) intact.
+function handleDashboardUpdate(data) {
+  if (data && data.prebuiltGroups) _prebuiltGroups = data.prebuiltGroups;
+  if (data && data.taskCounts) _taskCounts = data.taskCounts;
+  applyView();
+  // Update the "Due" filter-button badge
+  var dueBadge = document.querySelector('.rt-due-count');
+  if (dueBadge && _taskCounts) dueBadge.textContent = _taskCounts.due || 0;
 }
 
 // ============================================

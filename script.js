@@ -1327,41 +1327,57 @@ function buildDashboardBody(tasks, groupBy) {
   return html;
 }
 
+// Scan the entire vault and pre-build HTML for all (filter × group) combos.
+// Used both by the initial dashboard render and by post-action refreshes.
+function buildDashboardState() {
+  var tasks = scanRepeatingTasks();
+  var today = formatDate(new Date());
+  var dueTasks = tasks.filter(function(t) {
+    return t.scheduledDate && t.scheduledDate <= today;
+  });
+  return {
+    prebuiltGroups: {
+      all_note: buildDashboardBody(tasks, 'note'),
+      all_date: buildDashboardBody(tasks, 'date'),
+      due_note: buildDashboardBody(dueTasks, 'note'),
+      due_date: buildDashboardBody(dueTasks, 'date'),
+    },
+    taskCounts: { all: tasks.length, due: dueTasks.length },
+  };
+}
+
+// Send fresh dashboard data to the HTML view so it can replace its body,
+// update cached groups, and refresh counts while preserving the user's
+// current filter/group selection.
+async function sendDashboardUpdate() {
+  var state = buildDashboardState();
+  await sendToHTMLWindow(WINDOW_ID, 'DASHBOARD_UPDATE', {
+    prebuiltGroups: state.prebuiltGroups,
+    taskCounts: state.taskCounts,
+  });
+}
+
 async function showRoutineDashboard() {
   try {
     CommandBar.showLoading(true, 'Scanning repeating tasks...');
     await CommandBar.onAsyncThread();
 
     var t0 = Date.now();
-    var tasks = scanRepeatingTasks();
-    console.log('Routine: scan took ' + (Date.now() - t0) + 'ms, found ' + tasks.length + ' tasks');
-
-    // Filter due tasks (overdue + today)
-    var today = formatDate(new Date());
-    var dueTasks = tasks.filter(function(t) {
-      return t.scheduledDate && t.scheduledDate <= today;
-    });
-
-    // Pre-build HTML for all combinations
-    var byNoteHTML = buildDashboardBody(tasks, 'note');
-    var byDateHTML = buildDashboardBody(tasks, 'date');
-    var byNoteDueHTML = buildDashboardBody(dueTasks, 'note');
-    var byDateDueHTML = buildDashboardBody(dueTasks, 'date');
-
-    console.log('Routine: pre-build took ' + (Date.now() - t0) + 'ms');
+    var state = buildDashboardState();
+    console.log('Routine: scan+prebuild took ' + (Date.now() - t0) + 'ms, found ' + state.taskCounts.all + ' tasks');
 
     var bodyHTML = '<div class="rt-header">';
     bodyHTML += '<span class="rt-title">Repeating Tasks</span>';
-    bodyHTML += '<span class="rt-count" id="rtCount">' + dueTasks.length + ' tasks</span>';
+    bodyHTML += '<span class="rt-count" id="rtCount">' + state.taskCounts.due + ' tasks</span>';
     bodyHTML += '<div class="rt-filter-btns">';
     bodyHTML += '<button class="rt-filter-btn" data-filter="all">All</button>';
-    bodyHTML += '<button class="rt-filter-btn active" data-filter="due">Due <span class="rt-due-count">' + dueTasks.length + '</span></button>';
+    bodyHTML += '<button class="rt-filter-btn active" data-filter="due">Due <span class="rt-due-count">' + state.taskCounts.due + '</span></button>';
     bodyHTML += '</div>';
     bodyHTML += '<div class="rt-group-btns">';
     bodyHTML += '<button class="rt-group-btn active" data-group="note">By Note</button>';
     bodyHTML += '<button class="rt-group-btn" data-group="date">By Date</button>';
     bodyHTML += '</div></div>';
-    bodyHTML += '<div class="rt-body" id="rtBody">' + byNoteDueHTML + '</div>';
+    bodyHTML += '<div class="rt-body" id="rtBody">' + state.prebuiltGroups.due_note + '</div>';
 
     var themeCSS = getThemeCSS();
     var pluginCSS = buildRoutineCSS();
@@ -1378,8 +1394,8 @@ async function showRoutineDashboard() {
       '</head>\n<body>\n' + bodyHTML + '\n' +
       '  <div class="rt-toast" id="rtToast"></div>\n' +
       '  <script>var receivingPluginID = "asktru.Routine";\n' +
-      'var _prebuiltGroups = { "all_note": ' + JSON.stringify(byNoteHTML) + ', "all_date": ' + JSON.stringify(byDateHTML) + ', "due_note": ' + JSON.stringify(byNoteDueHTML) + ', "due_date": ' + JSON.stringify(byDateDueHTML) + ' };\n' +
-      'var _taskCounts = { all: ' + tasks.length + ', due: ' + dueTasks.length + ' };\n' +
+      'var _prebuiltGroups = ' + JSON.stringify(state.prebuiltGroups) + ';\n' +
+      'var _taskCounts = ' + JSON.stringify(state.taskCounts) + ';\n' +
       '<\/script>\n' +
       '  <script type="text/javascript" src="routineEvents.js"><\/script>\n' +
       '  <script type="text/javascript" src="../np.Shared/pluginToHTMLCommsBridge.js"><\/script>\n' +
@@ -1466,108 +1482,110 @@ async function onMessageFromHTMLView(actionType, data) {
           var note = findNoteByFilename(msg.filename);
           if (note) {
             var lineIdx = parseInt(msg.lineIndex);
-            var paras = note.paragraphs;
-            var para = null;
-            for (var pi = 0; pi < paras.length; pi++) {
-              if (paras[pi].lineIndex === lineIdx) { para = paras[pi]; break; }
+            var inEditor = Editor.note && Editor.note.filename === note.filename;
+
+            // Derive original raw content, original content (without marker), and isChecklist flag.
+            // When note is in the Editor we read from Editor.content (the authoritative buffer);
+            // otherwise from note.paragraphs. This prevents the Editor's stale buffer from
+            // overwriting our paragraph-API changes on the next save.
+            var origContent = '';
+            var origRaw = '';
+            var isChecklist = false;
+
+            if (inEditor) {
+              var edLines = (Editor.content || '').split('\n');
+              if (lineIdx < 0 || lineIdx >= edLines.length) break;
+              origRaw = edLines[lineIdx];
+              // Strip marker: '- [ ] ', '* [ ] ', '+ [ ] ', etc. (including indent)
+              var markerStripped = origRaw.replace(/^(\s*)[-*+]\s*\[[ x\-]\]\s+/, '');
+              if (markerStripped === origRaw) {
+                markerStripped = origRaw.replace(/^(\s*)[-*+]\s+/, '');
+              }
+              origContent = markerStripped;
+              isChecklist = /^\s*\+/.test(origRaw);
+            } else {
+              var paras = note.paragraphs;
+              var para = null;
+              for (var pi = 0; pi < paras.length; pi++) {
+                if (paras[pi].lineIndex === lineIdx) { para = paras[pi]; break; }
+              }
+              if (!para) break;
+              isChecklist = (para.type === 'checklist');
+              origContent = para.content || '';
+              origRaw = para.rawContent || '';
             }
-            if (para) {
-              var isChecklist = (para.type === 'checklist');
-              var origContent = (para.content || '');
 
-              // Extract repeat expression BEFORE stripping it
-              var repeatMatch = origContent.match(RE_REPEAT);
-              var repeatExpr = repeatMatch ? repeatMatch[1] : '';
+            // Extract repeat expression BEFORE stripping it
+            var repeatMatch = origContent.match(RE_REPEAT);
+            var repeatExpr = repeatMatch ? repeatMatch[1] : '';
 
-              // Calculate next occurrence inline (prevents double-processing with onEditorWillSave)
-              var newTaskContent = '';
-              var nextSchedStr = '';
-              if (repeatExpr) {
-                var desc = parseRepeatExpr(repeatExpr);
-                if (desc) {
-                  var completionDate = new Date();
-                  var schedInfo = getTaskScheduleInfo(origContent, note);
-                  var dueDate = schedInfo ? schedInfo.date : null;
-                  var granularity = schedInfo ? schedInfo.granularity : 'day';
-                  if (desc.type === 'interval') {
-                    if (desc.unit === 'week' && granularity === 'day') granularity = 'week';
-                    else if (desc.unit === 'quarter' && (granularity === 'day' || granularity === 'month')) granularity = 'quarter';
-                    else if (desc.unit === 'year' && granularity !== 'year') granularity = 'year';
-                    else if (desc.unit === 'month' && granularity === 'day') granularity = 'month';
-                  }
-                  var baseDate = desc.fromCompletion ? completionDate : dueDate;
-                  var nextDate = calcNextDate(desc, baseDate, completionDate);
-                  if (nextDate) {
-                    nextSchedStr = formatScheduleStr(nextDate, granularity);
-                    // Build new task content: keep @repeat, strip @done and old dates, add new date
-                    newTaskContent = origContent;
-                    newTaskContent = newTaskContent.replace(RE_DONE, '').trim();
-                    newTaskContent = newTaskContent.replace(RE_SCHED_ANY, '').trim();
-                    newTaskContent = newTaskContent.replace(/\s{2,}/g, ' ').trim();
-                    newTaskContent = newTaskContent + ' >' + nextSchedStr;
-                  }
+            // Calculate next occurrence inline (prevents double-processing with onEditorWillSave)
+            var newTaskContent = '';
+            if (repeatExpr) {
+              var desc = parseRepeatExpr(repeatExpr);
+              if (desc) {
+                var completionDate = new Date();
+                var schedInfo = getTaskScheduleInfo(origContent, note);
+                var dueDate = schedInfo ? schedInfo.date : null;
+                var granularity = schedInfo ? schedInfo.granularity : 'day';
+                if (desc.type === 'interval') {
+                  if (desc.unit === 'week' && granularity === 'day') granularity = 'week';
+                  else if (desc.unit === 'quarter' && (granularity === 'day' || granularity === 'month')) granularity = 'quarter';
+                  else if (desc.unit === 'year' && granularity !== 'year') granularity = 'year';
+                  else if (desc.unit === 'month' && granularity === 'day') granularity = 'month';
+                }
+                var baseDate = desc.fromCompletion ? completionDate : dueDate;
+                var nextDate = calcNextDate(desc, baseDate, completionDate);
+                if (nextDate) {
+                  var nextSchedStr = formatScheduleStr(nextDate, granularity);
+                  // Build new task content: keep @repeat, strip @done and old dates, add new date
+                  newTaskContent = origContent;
+                  newTaskContent = newTaskContent.replace(RE_DONE, '').trim();
+                  newTaskContent = newTaskContent.replace(RE_SCHED_ANY, '').trim();
+                  newTaskContent = newTaskContent.replace(/\s{2,}/g, ' ').trim();
+                  newTaskContent = newTaskContent + ' >' + nextSchedStr;
                 }
               }
-
-              // Insert the new repeat task BEFORE marking done (so para reference stays valid)
-              if (newTaskContent) {
-                note.insertParagraphBeforeParagraph(newTaskContent, para, isChecklist ? 'checklist' : 'open');
-              }
-
-              // Mark the original task as done, strip @repeat to prevent onEditorWillSave re-processing
-              var completedContent = origContent.replace(RE_REPEAT, '').replace(/\s{2,}/g, ' ').trimEnd() + ' ' + getDoneTag();
-              para.type = isChecklist ? 'checklistDone' : 'done';
-              para.content = completedContent;
-              note.updateParagraph(para);
-
-              // Build HTML for the new task row in the dashboard
-              var newTaskHTML = '';
-              if (newTaskContent) {
-                // Read fresh paragraphs to find the inserted task's lineIndex
-                var freshParas = note.paragraphs;
-                var origTitle = origContent.replace(/@repeat\([^)]+\)/g, '').replace(/@done\([^)]*\)/g, '').replace(/>\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}\s*(AM|PM))?/gi, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/^!{1,3}\s+/, '').replace(/\s{2,}/g, ' ').trim();
-                for (var npi = 0; npi < freshParas.length; npi++) {
-                  var np = freshParas[npi];
-                  if (np.type !== 'open' && np.type !== 'checklist') continue;
-                  var nRaw = np.rawContent || np.content || '';
-                  if (!RE_REPEAT.test(nRaw)) continue;
-                  var nContent = np.content || '';
-                  var nTitle = nContent.replace(/@repeat\([^)]+\)/g, '').replace(/@done\([^)]*\)/g, '').replace(/>\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}\s*(AM|PM))?/gi, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/^!{1,3}\s+/, '').replace(/\s{2,}/g, ' ').trim();
-                  if (nTitle !== origTitle) continue;
-
-                  var nRepeatMatch = nRaw.match(RE_REPEAT);
-                  var nSchedMatch = nContent.match(/>\s*(\d{4}-\d{2}-\d{2})/);
-                  var nWeekMatch = nContent.match(/>\s*(\d{4}-W\d{2})/);
-                  var nDisplay = nContent.replace(/@repeat\([^)]+\)/g, '').replace(/>\d{4}-\d{2}-\d{2}/g, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/\s{2,}/g, ' ').trim();
-                  var nPri = 0;
-                  if (nDisplay.startsWith('!!! ')) { nPri = 3; nDisplay = nDisplay.substring(4); }
-                  else if (nDisplay.startsWith('!! ')) { nPri = 2; nDisplay = nDisplay.substring(3); }
-                  else if (nDisplay.startsWith('! ')) { nPri = 1; nDisplay = nDisplay.substring(2); }
-                  var newTaskObj = {
-                    content: nDisplay,
-                    repeatExpr: nRepeatMatch ? nRepeatMatch[1] : '',
-                    filename: note.filename || '',
-                    noteTitle: note.title || note.filename || '',
-                    lineIndex: np.lineIndex,
-                    isChecklist: (np.type === 'checklist'),
-                    priority: nPri,
-                    scheduledDate: nSchedMatch ? nSchedMatch[1] : null,
-                    scheduledWeek: nWeekMatch ? nWeekMatch[1] : null,
-                    effectiveDate: (nSchedMatch ? nSchedMatch[1] : (nWeekMatch ? nWeekMatch[1] : '')),
-                  };
-                  newTaskHTML = buildTaskRow(newTaskObj, 'note');
-                  break;
-                }
-              }
-
-              // Send update to HTML
-              await sendToHTMLWindow(myWinId, 'TASK_COMPLETED', {
-                filename: msg.filename,
-                lineIndex: lineIdx,
-                newTaskHTML: newTaskHTML,
-                noteTitle: note.title || note.filename || '',
-              });
             }
+
+            // Build the completed-task content: strip @repeat, append @done(...)
+            var completedContent = origContent.replace(RE_REPEAT, '').replace(/\s{2,}/g, ' ').trimEnd() + ' ' + getDoneTag();
+
+            if (inEditor) {
+              // Operate on Editor.content to keep the in-memory buffer in sync.
+              // We splice: [new repeat line (if any), completed line] in place of the original line.
+              var edLines2 = (Editor.content || '').split('\n');
+              var indentMatch = origRaw.match(/^(\s*)/);
+              var indent = indentMatch ? indentMatch[1] : '';
+              var openMarker = isChecklist ? '+ [ ] ' : '* [ ] ';
+              var doneMarker = isChecklist ? '+ [x] ' : '* [x] ';
+              var replacement = [];
+              if (newTaskContent) replacement.push(indent + openMarker + newTaskContent);
+              replacement.push(indent + doneMarker + completedContent);
+              edLines2.splice.apply(edLines2, [lineIdx, 1].concat(replacement));
+              Editor.content = edLines2.join('\n');
+            } else {
+              // Paragraph API path (note not open in Editor)
+              var parasB = note.paragraphs;
+              var paraB = null;
+              for (var pib = 0; pib < parasB.length; pib++) {
+                if (parasB[pib].lineIndex === lineIdx) { paraB = parasB[pib]; break; }
+              }
+              if (paraB) {
+                if (newTaskContent) {
+                  note.insertParagraphBeforeParagraph(newTaskContent, paraB, isChecklist ? 'checklist' : 'open');
+                }
+                paraB.type = isChecklist ? 'checklistDone' : 'done';
+                paraB.content = completedContent;
+                note.updateParagraph(paraB);
+              }
+            }
+
+            // Always refresh the dashboard with fresh data and line indices.
+            await sendDashboardUpdate();
+            await sendToHTMLWindow(myWinId, 'SHOW_TOAST', {
+              message: newTaskContent ? 'Done — next repeat scheduled' : 'Done',
+            });
           }
         }
         break;
@@ -1617,7 +1635,7 @@ async function onMessageFromHTMLView(actionType, data) {
               }
             }
           }
-          await showRoutineDashboard();
+          await sendDashboardUpdate();
         }
         break;
 
@@ -1652,7 +1670,7 @@ async function onMessageFromHTMLView(actionType, data) {
               }
             }
           }
-          await showRoutineDashboard();
+          await sendDashboardUpdate();
         }
         break;
 
