@@ -8,7 +8,7 @@
   "plugin.iconColor": "#10B981",
   "plugin.author": "asktru",
   "plugin.url": "https://github.com/asktru/noteplan-routine",
-  "plugin.version": "1.2.1",
+  "plugin.version": "1.2.2",
   "plugin.script": "script.js",
   "plugin.commands": [
     {
