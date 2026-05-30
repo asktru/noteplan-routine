@@ -57,9 +57,6 @@
       "hidden": true
     }
   ],
-  "plugin.dependsOn": [
-    { "id": "np.Shared", "minVersion": "1.0.0" }
-  ],
   "plugin.requiredFiles": [
     "routineEvents.js"
   ],
