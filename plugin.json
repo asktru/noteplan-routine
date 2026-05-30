@@ -2,13 +2,15 @@
   "noteplan.minAppVersion": "3.15.0",
   "macOS.minVersion": "10.13.0",
   "plugin.id": "asktru.Routine",
-  "plugin.name": "Routine",
+  "plugin.name": "🔁 Routine",
+  "plugin.changelog": "https://github.com/asktru/noteplan-routine/blob/main/CHANGELOG.md",
   "plugin.description": "Todoist-like recurring tasks with natural language repeat syntax",
   "plugin.icon": "fa-rotate",
   "plugin.iconColor": "#10B981",
   "plugin.author": "asktru",
   "plugin.url": "https://github.com/asktru/noteplan-routine",
   "plugin.version": "1.2.2",
+  "plugin.lastUpdateInfo": "Fixed stale HTML state and Editor races in the Routine dashboard causing tasks to not complete or revert.",
   "plugin.script": "script.js",
   "plugin.commands": [
     {
