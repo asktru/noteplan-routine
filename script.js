@@ -948,6 +948,7 @@ async function onEditorWillSave() {
 // ============================================
 
 var WINDOW_ID = 'asktru.Routine.dashboard';
+var WINDOW_ID_FLOATING = 'asktru.Routine.dashboardWindow';
 
 function esc(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -1349,18 +1350,21 @@ function buildDashboardState() {
 // Send fresh dashboard data to the HTML view so it can replace its body,
 // update cached groups, and refresh counts while preserving the user's
 // current filter/group selection.
-async function sendDashboardUpdate() {
+async function sendDashboardUpdate(targetWindowID) {
   var state = buildDashboardState();
-  await sendToHTMLWindow(WINDOW_ID, 'DASHBOARD_UPDATE', {
+  await sendToHTMLWindow(targetWindowID || WINDOW_ID, 'DASHBOARD_UPDATE', {
     prebuiltGroups: state.prebuiltGroups,
     taskCounts: state.taskCounts,
   });
 }
 
-async function showRoutineDashboard() {
+async function showRoutineDashboard(targetWindowID) {
   try {
     CommandBar.showLoading(true, 'Scanning repeating tasks...');
     await CommandBar.onAsyncThread();
+
+    var winID = targetWindowID || WINDOW_ID;
+    var isFloating = winID === WINDOW_ID_FLOATING;
 
     var t0 = Date.now();
     var state = buildDashboardState();
@@ -1394,6 +1398,7 @@ async function showRoutineDashboard() {
       '</head>\n<body>\n' + bodyHTML + '\n' +
       '  <div class="rt-toast" id="rtToast"></div>\n' +
       '  <script>var receivingPluginID = "asktru.Routine";\n' +
+      'var npWindowID = ' + JSON.stringify(winID) + ';\n' +
       'var _prebuiltGroups = ' + JSON.stringify(state.prebuiltGroups) + ';\n' +
       'var _taskCounts = ' + JSON.stringify(state.taskCounts) + ';\n' +
       '<\/script>\n' +
@@ -1405,27 +1410,39 @@ async function showRoutineDashboard() {
     CommandBar.showLoading(false);
 
     var winOptions = {
-      customId: WINDOW_ID,
-      savedFilename: '../../asktru.Routine/routine.html',
+      customId: winID,
+      savedFilename: isFloating ? '../../asktru.Routine/routine_window.html' : '../../asktru.Routine/routine.html',
       shouldFocus: true,
       reuseUsersWindowRect: true,
       headerBGColor: 'transparent',
       autoTopPadding: true,
       showReloadButton: true,
       reloadPluginID: PLUGIN_ID,
-      reloadCommandName: 'Routine Dashboard',
+      reloadCommandName: isFloating ? 'Open in separate window' : 'Open in sidebar',
       icon: 'fa-rotate',
       iconColor: '#10B981',
     };
 
-    var result = await HTMLView.showInMainWindow(fullHTML, 'Routine', winOptions);
-    if (!result || !result.success) {
+    if (isFloating) {
+      winOptions.width = 1000;
+      winOptions.height = 750;
       await HTMLView.showWindowWithOptions(fullHTML, 'Routine', winOptions);
+    } else {
+      var result = await HTMLView.showInMainWindow(fullHTML, 'Routine', winOptions);
+      if (!result || !result.success) {
+        await HTMLView.showWindowWithOptions(fullHTML, 'Routine', winOptions);
+      }
     }
   } catch (err) {
     CommandBar.showLoading(false);
     console.log('Routine dashboard error: ' + String(err));
   }
+}
+
+// Open the same dashboard in a separate (floating) window, distinct from the
+// sidebar embed so the two views stay independently routed.
+async function showRoutineWindow() {
+  await showRoutineDashboard(WINDOW_ID_FLOATING);
 }
 
 function getDoneTag() {
@@ -1474,7 +1491,7 @@ async function onMessageFromHTMLView(actionType, data) {
   globalThis._routinePluginUpdating = true;
   try {
     var msg = typeof data === 'string' ? JSON.parse(data) : data;
-    var myWinId = 'asktru.Routine.dashboard';
+    var replyWindowID = (msg && msg._windowID) || WINDOW_ID;
 
     switch (actionType) {
       case 'completeTask':
@@ -1582,8 +1599,8 @@ async function onMessageFromHTMLView(actionType, data) {
             }
 
             // Always refresh the dashboard with fresh data and line indices.
-            await sendDashboardUpdate();
-            await sendToHTMLWindow(myWinId, 'SHOW_TOAST', {
+            await sendDashboardUpdate(replyWindowID);
+            await sendToHTMLWindow(replyWindowID, 'SHOW_TOAST', {
               message: newTaskContent ? 'Done — next repeat scheduled' : 'Done',
             });
           }
@@ -1635,7 +1652,7 @@ async function onMessageFromHTMLView(actionType, data) {
               }
             }
           }
-          await sendDashboardUpdate();
+          await sendDashboardUpdate(replyWindowID);
         }
         break;
 
@@ -1670,7 +1687,7 @@ async function onMessageFromHTMLView(actionType, data) {
               }
             }
           }
-          await sendDashboardUpdate();
+          await sendDashboardUpdate(replyWindowID);
         }
         break;
 
@@ -1768,5 +1785,6 @@ globalThis.generateRepeats = generateRepeats;
 globalThis.onEditorWillSave = onEditorWillSave;
 globalThis.enableAutoRepeat = enableAutoRepeat;
 globalThis.showRoutineDashboard = showRoutineDashboard;
+globalThis.showRoutineWindow = showRoutineWindow;
 globalThis.onMessageFromHTMLView = onMessageFromHTMLView;
 globalThis.onUpdateOrInstall = onUpdateOrInstall;

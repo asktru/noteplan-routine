@@ -33,7 +33,7 @@
       "jsFunction": "enableAutoRepeat"
     },
     {
-      "name": "Routine Dashboard",
+      "name": "Open in sidebar",
       "alias": ["routines", "repeating tasks"],
       "description": "View all repeating tasks across your notes",
       "jsFunction": "showRoutineDashboard",
@@ -43,6 +43,11 @@
         "icon": "fa-rotate",
         "iconColor": "#10B981"
       }
+    },
+    {
+      "name": "Open in separate window",
+      "description": "Open the Routine dashboard in a separate window",
+      "jsFunction": "showRoutineWindow"
     },
     {
       "name": "onMessageFromHTMLView",

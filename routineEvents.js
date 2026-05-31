@@ -1,7 +1,21 @@
 // asktru.Routine — routineEvents.js
 // HTML-side event handlers for the Routine dashboard
 
-/* global sendMessageToPlugin, _prebuiltGroups, _taskCounts */
+/* global sendMessageToPlugin, npWindowID, _prebuiltGroups, _taskCounts */
+
+// receivingPluginID and npWindowID are set in the inline script before the bridge
+// loads. Route every outgoing message through sendToPlugin so each payload carries
+// the originating window's ID; the plugin replies to that window (sidebar embed vs.
+// separate floating window). sendMessageToPlugin is `const` in the bridge and can't
+// be monkey-patched, so we wrap it.
+function sendToPlugin(action, data) {
+  try {
+    var d = data ? JSON.parse(data) : {};
+    if (typeof npWindowID !== 'undefined' && npWindowID && d._windowID === undefined) d._windowID = npWindowID;
+    data = JSON.stringify(d);
+  } catch (e) {}
+  return sendMessageToPlugin(action, data);
+}
 
 var currentGroup = 'note';
 var currentFilter = 'due';
@@ -111,7 +125,7 @@ function showEditRepeatModal(taskEl) {
   saveBtn.addEventListener('click', function() {
     var newExpr = input.value.trim();
     if (!newExpr) { input.style.borderColor = 'var(--rt-red)'; return; }
-    sendMessageToPlugin('editRepeat', JSON.stringify({
+    sendToPlugin('editRepeat', JSON.stringify({
       filename: filename,
       lineIndex: lineIndex,
       newExpr: newExpr,
@@ -205,7 +219,7 @@ function renderCalendar(picker) {
   clearBtn.textContent = 'Clear';
   clearBtn.addEventListener('click', function(e) {
     e.stopPropagation();
-    sendMessageToPlugin('scheduleTask', JSON.stringify({ filename: calPickerTask.filename, lineIndex: calPickerTask.lineIndex, dateStr: '' }));
+    sendToPlugin('scheduleTask', JSON.stringify({ filename: calPickerTask.filename, lineIndex: calPickerTask.lineIndex, dateStr: '' }));
     removeCalendarPicker();
   });
   header.appendChild(clearBtn);
@@ -262,7 +276,7 @@ function renderCalendar(picker) {
     wc.dataset.week = weekStr;
     wc.addEventListener('click', function(e) {
       e.stopPropagation();
-      sendMessageToPlugin('scheduleTask', JSON.stringify({ filename: calPickerTask.filename, lineIndex: calPickerTask.lineIndex, dateStr: this.dataset.week }));
+      sendToPlugin('scheduleTask', JSON.stringify({ filename: calPickerTask.filename, lineIndex: calPickerTask.lineIndex, dateStr: this.dataset.week }));
       removeCalendarPicker();
     });
     row.appendChild(wc);
@@ -278,7 +292,7 @@ function renderCalendar(picker) {
         if (dow >= 5) cell.classList.add('weekend');
         cell.addEventListener('click', function(e) {
           e.stopPropagation();
-          sendMessageToPlugin('scheduleTask', JSON.stringify({ filename: calPickerTask.filename, lineIndex: calPickerTask.lineIndex, dateStr: this.dataset.date }));
+          sendToPlugin('scheduleTask', JSON.stringify({ filename: calPickerTask.filename, lineIndex: calPickerTask.lineIndex, dateStr: this.dataset.date }));
           removeCalendarPicker();
         });
       } else { cell.classList.add('empty'); }
@@ -336,7 +350,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (taskEl) {
           taskEl.style.opacity = '0.3';
           taskEl.style.pointerEvents = 'none';
-          sendMessageToPlugin('completeTask', JSON.stringify({
+          sendToPlugin('completeTask', JSON.stringify({
             filename: taskEl.dataset.filename,
             lineIndex: taskEl.dataset.lineIndex,
           }));
@@ -345,16 +359,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
       case 'openNote':
         if (taskEl) {
-          sendMessageToPlugin('openNote', JSON.stringify({ filename: taskEl.dataset.filename }));
+          sendToPlugin('openNote', JSON.stringify({ filename: taskEl.dataset.filename }));
         }
         break;
 
       case 'openGroupNote':
-        sendMessageToPlugin('openGroupNote', JSON.stringify({ filename: actionEl.dataset.filename }));
+        sendToPlugin('openGroupNote', JSON.stringify({ filename: actionEl.dataset.filename }));
         break;
 
       case 'openGroupDate':
-        sendMessageToPlugin('openGroupDate', JSON.stringify({ date: actionEl.dataset.date }));
+        sendToPlugin('openGroupDate', JSON.stringify({ date: actionEl.dataset.date }));
         break;
 
       case 'editRepeat':
