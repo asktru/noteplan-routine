@@ -186,6 +186,35 @@ function lastDayOfMonth(year, month) {
  *            ... specific fields per type }
  *         or null if not parseable
  */
+// Insert task paragraph(s) above a "## Done" section (created by NotePlan's
+// "Move Completed to Bottom") so incomplete tasks don't land among completed
+// ones. Falls back to appending at the note bottom when there's no Done section.
+// items: array of { content, type }. Returns the line index of the first item.
+function insertTasksAboveDone(note, items) {
+  if (!items || !items.length) return -1;
+  var paras = note.paragraphs || [];
+  var doneIdx = -1;
+  for (var i = 0; i < paras.length; i++) {
+    var p = paras[i];
+    if (p.type === 'title' && p.headingLevel === 2 && (p.content || '').trim() === 'Done') { doneIdx = i; break; }
+  }
+  if (doneIdx < 0) {
+    var startIdx = paras.length;
+    for (var a = 0; a < items.length; a++) note.appendParagraph(items[a].content, items[a].type);
+    return startIdx;
+  }
+  var firstEmpty = doneIdx;
+  while (firstEmpty > 0 && paras[firstEmpty - 1].type === 'empty') firstEmpty--;
+  var hadBlank = firstEmpty < doneIdx;
+  var idx = firstEmpty;
+  for (var b = 0; b < items.length; b++) {
+    note.insertParagraph(items[b].content, idx, items[b].type);
+    idx++;
+  }
+  if (!hadBlank) note.insertParagraph('', idx, 'empty');
+  return firstEmpty;
+}
+
 function parseRepeatExpr(expr) {
   if (!expr) return null;
   var s = expr.trim().toLowerCase();
@@ -575,11 +604,7 @@ function processFromContent(note, editorContent, silent) {
       }
       var targetNote = DataStore.calendarNoteByDateString(targetLookup);
       if (targetNote) {
-        if (detected.isChecklist) {
-          targetNote.appendParagraph(taskContent, 'checklist');
-        } else {
-          targetNote.appendTodo(taskContent);
-        }
+        insertTasksAboveDone(targetNote, [{ content: taskContent, type: detected.isChecklist ? 'checklist' : 'open' }]);
         info('Appended repeat to calendar note: ' + targetLookup);
       }
     } else {
@@ -746,14 +771,11 @@ function processNote(note, silent) {
       }
       var targetNote = DataStore.calendarNoteByDateString(targetLookup);
       if (targetNote) {
-        // Insert as an open task (preserving original type: task or checklist)
+        // Insert as a task (preserving original type: task or checklist), above
+        // any ## Done section so it doesn't land among completed tasks.
         var rawLine = para.rawContent || '';
         var isChecklist = rawLine.trimStart().startsWith('+');
-        if (isChecklist) {
-          targetNote.appendParagraph(newContent, 'checklist');
-        } else {
-          targetNote.appendTodo(newContent);
-        }
+        insertTasksAboveDone(targetNote, [{ content: newContent, type: isChecklist ? 'checklist' : 'open' }]);
         log('Appended repeat to calendar note: ' + nextDateStr);
       } else {
         info('Could not find/create calendar note for: ' + nextDateStr);
