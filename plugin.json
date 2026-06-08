@@ -9,8 +9,8 @@
   "plugin.iconColor": "#10B981",
   "plugin.author": "asktru",
   "plugin.url": "https://github.com/asktru/noteplan-routine",
-  "plugin.version": "1.2.2",
-  "plugin.lastUpdateInfo": "Fixed stale HTML state and Editor races in the Routine dashboard causing tasks to not complete or revert.",
+  "plugin.version": "1.3.0",
+  "plugin.lastUpdateInfo": "New 'Open in separate window' command, generated repeats inserted above the Done section, and automatic np.Shared installation.",
   "plugin.script": "script.js",
   "plugin.commands": [
     {

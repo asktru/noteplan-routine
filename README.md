@@ -126,6 +126,8 @@ The Routine Dashboard sidebar shows all your repeating tasks at a glance:
 
 - **`/generate repeats`** — manually scan current + recent notes for completed repeating tasks
 - **`/Enable auto-repeat for this note`** — add `onEditorWillSave` trigger to frontmatter for automatic repeat generation
+- **`/Open in sidebar`** (alias `routines`) — open the Routine dashboard in the sidebar
+- **`/Open in separate window`** — open the Routine dashboard in a floating window
 
 ## Installation
 

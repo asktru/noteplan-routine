@@ -1,5 +1,13 @@
 # What's changed in 🔁 Routine plugin?
 
+## [1.3.0] 2026-06-07
+### New
+- **Open in separate window** command with per-window reply routing.
+- np.Shared is auto-installed on install/update.
+
+### Changes
+- Generated repeats are inserted above the `## Done` section.
+
 ## [1.2.2] 2026-04-23
 ### Fixes
 - Fixed stale HTML state in the dashboard: completing a task now edits `Editor.content` directly when the note is open, preventing a silent revert on the next Editor save.
