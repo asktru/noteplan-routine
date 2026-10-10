@@ -408,6 +408,33 @@ var RE_REPEAT = /@repeat\(([^)]+)\)/;
 // Regex to detect @done(YYYY-MM-DD ...) — captures the date
 var RE_DONE = /@done\((\d{4}-\d{2}-\d{2})[^)]*\)/;
 
+// NotePlan Apple Reminders link: @remind, @remind(args) or linked @remind(args:::reminderId)
+var RE_REMIND = /\s*@remind(?:\([^()]*\)|(?![\w(]))/g;
+
+/**
+ * Prepare @remind tags for a NEW copy of a task (e.g. the next repeat occurrence).
+ * NotePlan can't link two tasks to one reminder, so drop the :::reminderId and any
+ * absolute YYYY-MM-DD date (keep time and list), letting NotePlan create a fresh
+ * reminder relative to the copy's own date.
+ *   @remind(2026-08-12 9:00, Errands:::ID) -> @remind(9:00, Errands)
+ *   @remind(:::ID), @remind(2026-08-12:::ID) -> @remind
+ */
+function remindForCopy(content) {
+  return content.replace(/@remind(?:\(([^()]*)\)|(?![\w(]))/g, function(m, args) {
+    if (args === undefined) return m;
+    var idPos = args.indexOf(':::');
+    if (idPos >= 0) args = args.substring(0, idPos);
+    var parts = args.split(',');
+    parts[0] = parts[0].replace(/\b\d{4}-\d{2}-\d{2}\b/g, '');
+    var kept = [];
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i].replace(/\s{2,}/g, ' ').trim();
+      if (part) kept.push(part);
+    }
+    return kept.length > 0 ? '@remind(' + kept.join(', ') + ')' : '@remind';
+  });
+}
+
 // Regex patterns for scheduled dates at various granularities
 var RE_SCHED_DAY = />(\d{4}-\d{2}-\d{2})/;
 var RE_SCHED_WEEK = />(\d{4}-W\d{2})/;
@@ -424,6 +451,8 @@ var RE_SCHED_ANY = />(?:today|tomorrow|yesterday|\d{4}(?:-(?:(?:0[1-9]|1[0-2])(?
  * Priority: explicit >date in content > calendar note date > null
  */
 function getTaskScheduleInfo(content, note) {
+  // Ignore @remind(...) args (dates/times/list names) so they can't be read as a schedule
+  content = content.replace(RE_REMIND, '');
   // Check for explicit scheduled dates (most specific first)
   var dayMatch = content.match(RE_SCHED_DAY);
   if (dayMatch) return { date: parseDate(dayMatch[1]), granularity: 'day' };
@@ -578,6 +607,8 @@ function processFromContent(note, editorContent, silent) {
     // Remove @done(...) and old scheduled dates (all formats)
     taskContent = taskContent.replace(RE_DONE, '').trim();
     taskContent = taskContent.replace(RE_SCHED_ANY, '').trim();
+    // New occurrence is a copy: unlink its @remind from the original's reminder
+    taskContent = remindForCopy(taskContent);
     taskContent = taskContent.replace(/\s{2,}/g, ' ').trim();
     // Add new scheduled date in the appropriate format
     taskContent = taskContent + ' >' + nextSchedStr;
@@ -751,6 +782,8 @@ function processNote(note, silent) {
     var newContent = rawContent;
     newContent = newContent.replace(RE_DONE, '').trim();
     newContent = newContent.replace(RE_SCHED_ANY, '').trim();
+    // New occurrence is a copy: unlink its @remind from the original's reminder
+    newContent = remindForCopy(newContent);
     newContent = newContent.replace(/\s{2,}/g, ' ').trim();
     newContent = newContent + ' >' + nextSchedStr;
 
@@ -1049,7 +1082,7 @@ function scanRepeatingTasks() {
       var scheduledWeek = schedWeekMatch ? schedWeekMatch[1] : null;
 
       // Clean display content
-      var display = content.replace(/@repeat\([^)]+\)/g, '').replace(/>\d{4}-\d{2}-\d{2}/g, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/\s{2,}/g, ' ').trim();
+      var display = content.replace(/@repeat\([^)]+\)/g, '').replace(RE_REMIND, '').replace(/>\d{4}-\d{2}-\d{2}/g, '').replace(/>\d{4}-W\d{2}/g, '').replace(/>today/g, '').replace(/\s{2,}/g, ' ').trim();
 
       // Extract priority
       var priLevel = 0;
@@ -1581,6 +1614,8 @@ async function onMessageFromHTMLView(actionType, data) {
                   newTaskContent = origContent;
                   newTaskContent = newTaskContent.replace(RE_DONE, '').trim();
                   newTaskContent = newTaskContent.replace(RE_SCHED_ANY, '').trim();
+                  // New occurrence is a copy: unlink its @remind from the original's reminder
+                  newTaskContent = remindForCopy(newTaskContent);
                   newTaskContent = newTaskContent.replace(/\s{2,}/g, ' ').trim();
                   newTaskContent = newTaskContent + ' >' + nextSchedStr;
                 }

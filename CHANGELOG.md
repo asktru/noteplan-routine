@@ -1,5 +1,10 @@
 # What's changed in 🔁 Routine plugin?
 
+## [1.3.1] 2026-10-10
+### Fixes
+- `@remind(...)` tags (NotePlan's Apple Reminders link) are hidden on the dashboard and never read as a schedule.
+- The next occurrence of a repeating task gets a new, unlinked `@remind` (time and list kept, reminder ID and fixed date dropped), so NotePlan creates a fresh reminder for it instead of sharing the original one.
+
 ## [1.3.0] 2026-06-07
 ### New
 - **Open in separate window** command with per-window reply routing.

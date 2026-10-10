@@ -9,8 +9,8 @@
   "plugin.iconColor": "#10B981",
   "plugin.author": "asktru",
   "plugin.url": "https://github.com/asktru/noteplan-routine",
-  "plugin.version": "1.3.0",
-  "plugin.lastUpdateInfo": "New 'Open in separate window' command, generated repeats inserted above the Done section, and automatic np.Shared installation.",
+  "plugin.version": "1.3.1",
+  "plugin.lastUpdateInfo": "Support for NotePlan's Apple Reminders links: @remind(...) tags are hidden instead of shown as raw text.",
   "plugin.script": "script.js",
   "plugin.commands": [
     {
